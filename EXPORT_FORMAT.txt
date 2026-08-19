@@ -1,0 +1,81 @@
+Format de exports/zone_1000.json
+
+Le fichier contient une liste "placements". Chaque entree de cette liste indique quoi generer dans Minecraft.
+
+Coordonnees
+
+- Toutes les coordonnees sont en blocs Minecraft.
+- "pos" est le coin minimum du placement: [x, y, z].
+- "size" est la taille en blocs: [largeur_x, hauteur_y, longueur_z].
+- La map utilise la hauteur monde -64 a 320.
+- La generation actuelle remplit jusqu'a Y 300.
+
+Types de placements
+
+1. Structure NBT
+
+Exemple:
+
+{
+  "kind": "structure",
+  "name": "building",
+  "pos": [x, y, z],
+  "rotation_y": 0,
+  "size": [16, 16, 16]
+}
+
+Action cote mod:
+
+- Charger le NBT correspondant depuis structures/<name>.nbt.
+- Le placer a "pos".
+- Appliquer "rotation_y" si besoin.
+
+Structures actuelles:
+
+- building -> structures/building.nbt
+- room_1 -> structures/room_1.nbt
+- pillar_1 -> structures/pillar_1.nbt
+
+2. Bridge NBT
+
+Exemple:
+
+{
+  "kind": "bridge",
+  "name": "bridge",
+  "pos": [x, y, z],
+  "rotation_y": 90,
+  "size": [16, 16, 16],
+  "axis": "x"
+}
+
+Action cote mod:
+
+- Charger structures/bridge.nbt.
+- Le placer a "pos".
+- Si "rotation_y" vaut 90, tourner le NBT de 90 degres.
+
+3. Mur en stone
+
+Exemple:
+
+{
+  "kind": "stone_run",
+  "block": "minecraft:stone",
+  "pos": [x, y, z],
+  "size": [length, 1, 1]
+}
+
+Action cote mod:
+
+- Ne pas charger de NBT.
+- Faire un fill/place direct en minecraft:stone.
+- Remplir depuis "pos" sur "size".
+- Ici size veut dire: length blocs sur X, 1 bloc en Y, 1 bloc en Z.
+
+Resume implementation
+
+- Si kind == "structure": placer structures/<name>.nbt.
+- Si kind == "bridge": placer structures/bridge.nbt avec rotation_y.
+- Si kind == "stone_run": remplir directement avec le bloc donne dans "block".
+- Ne rien generer hors de la liste "placements".

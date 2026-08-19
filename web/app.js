@@ -36,12 +36,12 @@ const CONNECTOR_DARK_COLOR = 0x009cff;
 const CONNECTOR_LIGHT_COLOR = 0x00eaff;
 const WALL_DARK_COLOR = 0x9f9f9f;
 const WALL_LIGHT_COLOR = 0xd4d4d4;
-const WALL_TILT_DEGREES = 5;
-const WALL_TILT_RADIANS = THREE.MathUtils.degToRad(WALL_TILT_DEGREES);
-const WALL_THICKNESS_BLOCKS = 2;
+const WALL_STEP_HEIGHT_BLOCKS = 20;
+const WALL_BASE_ADVANCE_BLOCKS = 1;
+const WALL_MAX_ADVANCE_BLOCKS = WALL_BASE_ADVANCE_BLOCKS + Math.floor((GENERATION_HEIGHT_BLOCKS - 1) / WALL_STEP_HEIGHT_BLOCKS);
 const WALL_MAX_DISTANCE_CELLS = Math.max(
   1,
-  Math.ceil((GENERATION_HEIGHT_BLOCKS * Math.tan(WALL_TILT_RADIANS) + WALL_THICKNESS_BLOCKS) / WORLD_SCALE),
+  Math.ceil(WALL_MAX_ADVANCE_BLOCKS / WORLD_SCALE),
 );
 const BLUE_CONNECTOR_TARGET = 200;
 const BLUE_CONNECTOR_ATTEMPTS = 90000;
@@ -133,6 +133,7 @@ let chunkBuildQueueSet = new Set();
 let chunkBuildLod = new Map();
 let structureStackCache = new Map();
 let fillableHeightCache = new Map();
+let wallStonePositionCache = new Map();
 
 async function loadNoiseMap(url) {
   const image = await new Promise((resolve, reject) => {
@@ -719,47 +720,58 @@ function addStoneBlockToWall(blocks, worldX, worldZ, blockY, bx, bz) {
   });
 }
 
-function wallStonePositionsForCell(x, z, distance) {
-  const positions = new Set();
-  const addStripX = (edge) => {
-    const start = edge < 0 ? 0 : WORLD_SCALE - WALL_THICKNESS_BLOCKS;
-    const end = edge < 0 ? WALL_THICKNESS_BLOCKS : WORLD_SCALE;
-    for (let bx = start; bx < end; bx++) {
-      for (let bz = 0; bz < WORLD_SCALE; bz++) {
-        positions.add(`${bx},${bz}`);
-      }
-    }
-  };
-  const addStripZ = (edge) => {
-    const start = edge < 0 ? 0 : WORLD_SCALE - WALL_THICKNESS_BLOCKS;
-    const end = edge < 0 ? WALL_THICKNESS_BLOCKS : WORLD_SCALE;
-    for (let bz = start; bz < end; bz++) {
-      for (let bx = 0; bx < WORLD_SCALE; bx++) {
-        positions.add(`${bx},${bz}`);
-      }
-    }
-  };
+function distanceFromBlockToSolidCell(blockX, blockZ, solidCellX, solidCellZ) {
+  const solidMinX = solidCellX * WORLD_SCALE;
+  const solidMaxX = solidMinX + WORLD_SCALE - 1;
+  const solidMinZ = solidCellZ * WORLD_SCALE;
+  const solidMaxZ = solidMinZ + WORLD_SCALE - 1;
+  const dx = blockX < solidMinX ? solidMinX - blockX : Math.max(0, blockX - solidMaxX);
+  const dz = blockZ < solidMinZ ? solidMinZ - blockZ : Math.max(0, blockZ - solidMaxZ);
+  return Math.max(dx, dz);
+}
 
-  for (let dz = -distance; dz <= distance; dz++) {
-    for (let dx = -distance; dx <= distance; dx++) {
+function nearestSolidDistanceForBlock(x, z, bx, bz, maxDistance) {
+  const blockX = x * WORLD_SCALE + bx;
+  const blockZ = z * WORLD_SCALE + bz;
+  let bestDistance = maxDistance + 1;
+
+  for (let dz = -WALL_MAX_DISTANCE_CELLS; dz <= WALL_MAX_DISTANCE_CELLS; dz++) {
+    for (let dx = -WALL_MAX_DISTANCE_CELLS; dx <= WALL_MAX_DISTANCE_CELLS; dx++) {
       if (dx === 0 && dz === 0) continue;
-      if (Math.max(Math.abs(dx), Math.abs(dz)) !== distance) continue;
       const sx = x + dx;
       const sz = z + dz;
       if (sx < 0 || sz < 0 || sx >= WORLD.width || sz >= WORLD.depth) continue;
       if (columnHeights[sz][sx] === 0) continue;
-      if (dx !== 0) addStripX(Math.sign(dx));
-      if (dz !== 0) addStripZ(Math.sign(dz));
+      const distance = distanceFromBlockToSolidCell(blockX, blockZ, sx, sz);
+      if (distance < bestDistance) bestDistance = distance;
     }
   }
 
-  return Array.from(positions, (item) => item.split(',').map(Number));
+  return bestDistance;
 }
 
-function wallDepthForSegment(segmentEndY) {
-  const endBlocks = Math.min(GENERATION_HEIGHT_BLOCKS, segmentEndY * WORLD_SCALE);
-  const depth = 1 + Math.floor((endBlocks * Math.tan(WALL_TILT_RADIANS) + WALL_THICKNESS_BLOCKS) / WORLD_SCALE);
-  return Math.max(1, Math.min(WALL_MAX_DISTANCE_CELLS, depth));
+function wallAdvanceForBlockY(blockY) {
+  return Math.min(
+    WALL_MAX_ADVANCE_BLOCKS,
+    WALL_BASE_ADVANCE_BLOCKS + Math.floor(blockY / WALL_STEP_HEIGHT_BLOCKS),
+  );
+}
+
+function wallStonePositionsForCell(x, z, advanceBlocks) {
+  const key = `${x},${z},${advanceBlocks}`;
+  const cached = wallStonePositionCache.get(key);
+  if (cached) return cached;
+
+  const positions = [];
+  for (let bz = 0; bz < WORLD_SCALE; bz++) {
+    for (let bx = 0; bx < WORLD_SCALE; bx++) {
+      const distance = nearestSolidDistanceForBlock(x, z, bx, bz, advanceBlocks);
+      if (distance >= 1 && distance <= advanceBlocks) positions.push([bx, bz]);
+    }
+  }
+
+  wallStonePositionCache.set(key, positions);
+  return positions;
 }
 
 function bridgeOverlapsWallSegment(x, y, z, segmentStartY, segmentEndY) {
@@ -773,26 +785,24 @@ function bridgeOverlapsWallSegment(x, y, z, segmentStartY, segmentEndY) {
 
 function addSlopeWallSegmentsToBlocks(blocks, x, z, startY, endY) {
   if (columnHeights[z][x] !== 0) return 0;
-  const distance = wallDistanceMap[bridgeIndex(x, z)];
-  if (distance === 0 || distance === 255) return 0;
+  if (wallDistanceMap[bridgeIndex(x, z)] === 255) return 0;
 
   let added = 0;
   const worldX = x - WORLD.width / 2;
   const worldZ = z - WORLD.depth / 2;
   const maxY = GENERATION_HEIGHT_BLOCKS / WORLD_SCALE;
-  const stonePositions = wallStonePositionsForCell(x, z, distance);
-  if (stonePositions.length === 0) return 0;
 
   for (let y = Math.floor(startY); y < Math.ceil(endY); y++) {
     const segmentStartY = Math.max(startY, y);
     const segmentEndY = Math.min(endY, y + 1, maxY);
     if (segmentEndY <= segmentStartY) continue;
-    if (wallDepthForSegment(segmentEndY) < distance) continue;
     if (bridgeOverlapsWallSegment(x, y, z, segmentStartY, segmentEndY)) continue;
 
     const startBlockY = Math.floor(segmentStartY * WORLD_SCALE);
     const endBlockY = Math.min(GENERATION_HEIGHT_BLOCKS, Math.ceil(segmentEndY * WORLD_SCALE));
     for (let blockY = startBlockY; blockY < endBlockY; blockY++) {
+      const advanceBlocks = wallAdvanceForBlockY(blockY);
+      const stonePositions = wallStonePositionsForCell(x, z, advanceBlocks);
       for (const [bx, bz] of stonePositions) {
         addStoneBlockToWall(blocks, worldX, worldZ, blockY, bx, bz);
         added++;
@@ -1490,6 +1500,7 @@ async function boot() {
   structureBlockCount = 0;
   structureStackCache = new Map();
   fillableHeightCache = new Map([[0, true]]);
+  wallStonePositionCache = new Map();
   connectorCells = new Map();
   normalMaterial = createCheckerMaterial(NORMAL_DARK_COLOR, NORMAL_LIGHT_COLOR);
   connectorMaterial = createCheckerMaterial(CONNECTOR_DARK_COLOR, CONNECTOR_LIGHT_COLOR, {

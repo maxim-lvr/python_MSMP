@@ -52,11 +52,12 @@ SAME_ISLAND_DIRECTIONS = (
     (-1, 1),
     (-1, -1),
 )
-WALL_TILT_DEGREES = 5
-WALL_THICKNESS_BLOCKS = 2
+WALL_STEP_HEIGHT_BLOCKS = 20
+WALL_BASE_ADVANCE_BLOCKS = 1
+WALL_MAX_ADVANCE_BLOCKS = WALL_BASE_ADVANCE_BLOCKS + math.floor((GENERATION_HEIGHT_BLOCKS - 1) / WALL_STEP_HEIGHT_BLOCKS)
 WALL_MAX_DISTANCE_CELLS = max(
     1,
-    math.ceil((GENERATION_HEIGHT_BLOCKS * math.tan(math.radians(WALL_TILT_DEGREES)) + WALL_THICKNESS_BLOCKS) / WORLD_SCALE),
+    math.ceil(WALL_MAX_ADVANCE_BLOCKS / WORLD_SCALE),
 )
 
 
@@ -427,12 +428,6 @@ def compute_wall_distance_map(heights) -> list[bytearray]:
     return distances
 
 
-def wall_depth_for_segment(segment_end_blocks: int) -> int:
-    end_blocks = min(GENERATION_HEIGHT_BLOCKS, segment_end_blocks)
-    depth = 1 + math.floor((end_blocks * math.tan(math.radians(WALL_TILT_DEGREES)) + WALL_THICKNESS_BLOCKS) / WORLD_SCALE)
-    return max(1, min(WALL_MAX_DISTANCE_CELLS, depth))
-
-
 def bridge_segments_by_column(bridge_cells, bridge_height: int) -> dict[tuple[int, int], list[tuple[int, int]]]:
     segments: dict[tuple[int, int], list[tuple[int, int]]] = {}
     for x, y, z in bridge_cells:
@@ -453,13 +448,24 @@ def overlaps_bridge_segment(
     return False
 
 
-def wall_panel_names_for_cell(heights, x: int, z: int, distance: int) -> list[str]:
-    panels = set()
-    for dz in range(-distance, distance + 1):
-        for dx in range(-distance, distance + 1):
+def distance_from_block_to_solid_cell(block_x: int, block_z: int, solid_cell_x: int, solid_cell_z: int) -> int:
+    solid_min_x = solid_cell_x * WORLD_SCALE
+    solid_max_x = solid_min_x + WORLD_SCALE - 1
+    solid_min_z = solid_cell_z * WORLD_SCALE
+    solid_max_z = solid_min_z + WORLD_SCALE - 1
+    dx = solid_min_x - block_x if block_x < solid_min_x else max(0, block_x - solid_max_x)
+    dz = solid_min_z - block_z if block_z < solid_min_z else max(0, block_z - solid_max_z)
+    return max(dx, dz)
+
+
+def nearest_solid_distance_for_block(heights, x: int, z: int, bx: int, bz: int, max_distance: int) -> int:
+    block_x = x * WORLD_SCALE + bx
+    block_z = z * WORLD_SCALE + bz
+    best_distance = max_distance + 1
+
+    for dz in range(-WALL_MAX_DISTANCE_CELLS, WALL_MAX_DISTANCE_CELLS + 1):
+        for dx in range(-WALL_MAX_DISTANCE_CELLS, WALL_MAX_DISTANCE_CELLS + 1):
             if dx == 0 and dz == 0:
-                continue
-            if max(abs(dx), abs(dz)) != distance:
                 continue
             solid_x = x + dx
             solid_z = z + dz
@@ -467,26 +473,39 @@ def wall_panel_names_for_cell(heights, x: int, z: int, distance: int) -> list[st
                 continue
             if heights[solid_z][solid_x] == 0:
                 continue
-            if dx < 0:
-                panels.add("stone_wall_x_neg")
-            elif dx > 0:
-                panels.add("stone_wall_x_pos")
-            if dz < 0:
-                panels.add("stone_wall_z_neg")
-            elif dz > 0:
-                panels.add("stone_wall_z_pos")
-    return sorted(panels)
+            distance = distance_from_block_to_solid_cell(block_x, block_z, solid_x, solid_z)
+            best_distance = min(best_distance, distance)
+
+    return best_distance
 
 
-def wall_variant_name(name: str, height: int) -> str:
-    if height == WORLD_SCALE:
-        return name
-    return f"{name}_h{height}"
+def wall_advance_for_block_y(block_y: int) -> int:
+    return min(WALL_MAX_ADVANCE_BLOCKS, WALL_BASE_ADVANCE_BLOCKS + block_y // WALL_STEP_HEIGHT_BLOCKS)
+
+
+def wall_stone_positions_for_cell(heights, x: int, z: int, advance_blocks: int) -> list[tuple[int, int]]:
+    positions = []
+    for bz in range(WORLD_SCALE):
+        run_start = None
+        for bx in range(WORLD_SCALE + 1):
+            if bx < WORLD_SCALE:
+                distance = nearest_solid_distance_for_block(heights, x, z, bx, bz, advance_blocks)
+                solid = 1 <= distance <= advance_blocks
+            else:
+                solid = False
+
+            if solid and run_start is None:
+                run_start = bx
+            elif not solid and run_start is not None:
+                positions.append((run_start, bx - run_start, bz))
+                run_start = None
+    return positions
 
 
 def generate_slope_walls(heights, x_cells: range, z_cells: range, bridge_cells, bridge_height: int) -> list[dict]:
     wall_distances = compute_wall_distance_map(heights)
     bridge_segments = bridge_segments_by_column(bridge_cells, bridge_height)
+    wall_position_cache = {}
     walls = []
 
     for z in z_cells:
@@ -496,42 +515,36 @@ def generate_slope_walls(heights, x_cells: range, z_cells: range, bridge_cells, 
             distance = wall_distances[z][x]
             if distance == 0 or distance == 255:
                 continue
-            panel_names = wall_panel_names_for_cell(heights, x, z, distance)
-            if not panel_names:
-                continue
 
             y = 0
             while y < GENERATION_HEIGHT_BLOCKS:
                 segment_end = min(GENERATION_HEIGHT_BLOCKS, y + WORLD_SCALE)
-                segment_height = segment_end - y
-                if wall_depth_for_segment(segment_end) < distance:
-                    y = segment_end
-                    continue
-                if overlaps_bridge_segment(bridge_segments, x, z, y, segment_end):
-                    y = segment_end
-                    continue
-
-                for panel_name in panel_names:
-                    variant_name = wall_variant_name(panel_name, segment_height)
-                    walls.append(
-                        {
-                            "kind": "wall_panel",
-                            "name": variant_name,
-                            "block": "minecraft:stone",
-                            "source": f"structures/{variant_name}.nbt",
-                            "pos": [
-                                cell_to_world(x, WORLD["width"]),
-                                height_to_world_y(y),
-                                cell_to_world(z, WORLD["depth"]),
-                            ],
-                            "rotation_y": 0,
-                            "size": [WORLD_SCALE, segment_height, WORLD_SCALE],
-                            "distance_from_solid": distance,
-                            "max_distance_from_solid": WALL_MAX_DISTANCE_CELLS,
-                            "tilt_degrees": WALL_TILT_DEGREES,
-                            "blocky": True,
-                        }
-                    )
+                for block_y in range(y, segment_end):
+                    if overlaps_bridge_segment(bridge_segments, x, z, block_y, block_y + 1):
+                        continue
+                    advance_blocks = wall_advance_for_block_y(block_y)
+                    cache_key = (x, z, advance_blocks)
+                    if cache_key not in wall_position_cache:
+                        wall_position_cache[cache_key] = wall_stone_positions_for_cell(heights, x, z, advance_blocks)
+                    for bx, length, bz in wall_position_cache[cache_key]:
+                        walls.append(
+                            {
+                                "kind": "stone_run",
+                                "name": "minecraft:stone",
+                                "block": "minecraft:stone",
+                                "pos": [
+                                    cell_to_world(x, WORLD["width"]) + bx,
+                                    height_to_world_y(block_y),
+                                    cell_to_world(z, WORLD["depth"]) + bz,
+                                ],
+                                "rotation_y": 0,
+                                "size": [length, 1, 1],
+                                "advance_blocks": advance_blocks,
+                                "step_height_blocks": WALL_STEP_HEIGHT_BLOCKS,
+                                "distance_from_solid_cell": distance,
+                                "max_advance_blocks": WALL_MAX_ADVANCE_BLOCKS,
+                            }
+                        )
                 y = segment_end
 
     walls.sort(key=lambda item: (item["pos"][2], item["pos"][1], item["pos"][0]))
@@ -647,7 +660,7 @@ def build_export(args: argparse.Namespace) -> dict:
             "placements": len(placements),
             "bridges": bridge_placements,
             "slope_walls": len(slope_walls),
-            "wall_panels": len(slope_walls),
+            "stone_runs": len(slope_walls),
             "skipped_small_tops": skipped_small_tops,
         },
         "placements": placements,
