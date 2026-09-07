@@ -38,6 +38,7 @@ const materialByKind = new Map([
   ['house_bridge', new THREE.MeshBasicMaterial({ color: 0x58606a })],
   ['house_stair', new THREE.MeshBasicMaterial({ color: 0x3f4650 })],
   ['window', new THREE.MeshBasicMaterial({ color: 0x151a20 })],
+  ['rear_door', new THREE.MeshBasicMaterial({ color: 0xff8800, toneMapped: false })],
 ]);
 
 let zone = { size: [1000, 120, 300] };

@@ -16,6 +16,7 @@ from map_builde_dense_1 import (
     build_dense_payload,
 )
 from map_builder_house import DEFAULT_OUT as HOUSE_DEFAULT_OUT, build_payload as build_house_payload
+from generation_demo_chunks_templates import wall_templates
 
 
 DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
@@ -24,6 +25,16 @@ DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
 class HouseZoneHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/demo-chunks-templates":
+            try:
+                seed = int(parse_qs(parsed.query).get("seed", ["42"])[0])
+                if not 0 <= seed <= 0xFFFFFFFF:
+                    raise ValueError("seed")
+            except ValueError:
+                self.send_error(400, "Invalid seed")
+                return
+            self.send_json(wall_templates(seed))
+            return
         if parsed.path == "/api/house-zone":
             self.send_house_zone(parsed.query)
             return

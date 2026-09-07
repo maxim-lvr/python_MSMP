@@ -1,0 +1,108 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { generateChunks } from '../generation_demo_chunks_generator.js';
+import { populateChunks, NETWORK_FLOOR } from '../generation_demo_chunks_houses.js';
+
+const S=5000;
+const key=(x,y,z)=>(y*S+z)*S+x;
+const contains=(b,x,y,z)=>x>=b[0]&&x<b[0]+b[3]&&y>=b[1]&&y<b[1]+b[4]&&z>=b[2]&&z<b[2]+b[5];
+const densityTest=process.argv.includes('--density');
+for(const seed of densityTest?[42]:[42,0,1234,98765,4294967295]) {
+  const templates=JSON.parse(execFileSync('python3',['-c',
+    `import json; from generation_demo_chunks_templates import wall_templates; print(json.dumps(wall_templates(${seed})))`],{maxBuffer:20_000_000}));
+  const count=seed===42?54:18;
+  const start=performance.now();
+  const d=populateChunks(generateChunks(seed),templates,count,true,densityTest?10:null);
+  if(densityTest) {
+    assert.ok(d.denseRooms.length>10000);
+    assert.equal(d.stats.connectedDense,d.denseRooms.length);
+    assert.equal(d.stats.connectedDoors,d.ports.length);
+    assert.equal(d.stats.components,1);
+    const sectors=new Map();
+    for(const room of d.denseRooms) {
+      const b=room.box,id=`${Math.floor(b[0]/128)},${Math.floor(b[2]/128)}`;
+      sectors.set(id,(sectors.get(id)||0)+1);
+      assert.ok(b[3]>=5&&b[3]<=30&&b[5]>=5&&b[5]<=30);
+      assert.ok(b[1]+b[4]<=300);
+    }
+    assert.ok(sectors.size>800);
+    assert.ok(new Set(d.denseRooms.map(r=>r.box[1])).size>100);
+    assert.ok(new Set(d.denseRooms.map(r=>r.box[0]%32)).size>25);
+    const reached=new Set();
+    for(const c of d.growthConnections) {
+      assert.ok(c.from===null||reached.has(c.from));reached.add(c.to);
+      assert.ok(c.path.every((p,i)=>!i||Math.abs(p[1]-c.path[i-1][1])<=1));
+      for(const [i,p] of c.path.entries()) {
+        assert.ok(d.air.has(key(p[0],p[1]+1,p[2]))&&d.air.has(key(p[0],p[1]+2,p[2])));
+        assert.ok(!d.air.has(key(...p)),'Missing floor on growth route');
+        if(c.path[i+1]?.[1]>p[1])assert.ok(d.air.has(key(p[0],p[1]+3,p[2])));
+      }
+    }
+    assert.equal(reached.size,d.denseRooms.length);
+    assert.ok(d.denseRooms.every(r=>Object.keys(r.openings).length<=3));
+    console.log(JSON.stringify({rooms:d.denseRooms.length,sectors:sectors.size,
+      average:d.denseRooms.length/sectors.size,doors:d.ports.length,seconds:(performance.now()-start)/1000}));
+    continue;
+  }
+  assert.equal(d.denseRooms.length,count);
+  assert.equal(d.stats.components,1);
+  const doorSet=new Set(d.ports.flatMap(p=>[key(...p.door),key(p.door[0],p.door[1]+1,p.door[2])]));
+  for(const z of d.zones) for(const side of ['north','south','east','west'])
+    assert.ok(d.houses.some(h=>h.zone===z.id&&h.side===side));
+  for(const group of d.wallGroups)for(const b of [...group.boxes,...group.walls]) {
+    assert.ok(b.slice(0,6).every(Number.isInteger));
+    assert.ok(b[0]>=0&&b[1]>=0&&b[2]>=0&&b[0]+b[3]<=5000&&b[1]+b[4]<=300&&b[2]+b[5]<=5000);
+    // Orange markers have really been removed from the solid house shell.
+    for(const p of d.ports.filter(p=>p.zone===group.zone)) assert.ok(!contains(b,...p.door));
+  }
+  for(const room of d.denseRooms) {
+    assert.ok(room.box[3]>=5&&room.box[5]>=5&&room.box[3]<=30&&room.box[5]<=30);
+    assert.ok(d.shafts.some(s=>s.id===room.shaft));
+    assert.ok(d.air.has(key(...room.door)));
+    for(const z of d.zones)assert.ok(!(
+      room.box[0]<(z.x+z.width)*32&&room.box[0]+room.box[3]>z.x*32&&
+      room.box[2]<(z.z+z.depth)*32&&room.box[2]+room.box[5]>z.z*32));
+  }
+  for(const p of d.ports) {
+    assert.ok(d.air.has(key(...p.door)));
+    assert.ok(d.air.has(key(p.door[0],p.door[1]+1,p.door[2])));
+    assert.ok(d.shafts.some(s=>s.id===p.shaft));
+  }
+  for(const shaft of d.shafts) {
+    assert.ok(d.solid.has(key(shaft.x,NETWORK_FLOOR,shaft.z)));
+    assert.ok(d.solid.has(key(shaft.x,shaft.top+3,shaft.z)));
+    for(let y=NETWORK_FLOOR+1;y<=shaft.top;y++) {
+      assert.ok(d.air.has(key(shaft.x,y,shaft.z)));
+      assert.ok(d.solid.has(key(shaft.x,y,shaft.z+1)));
+    }
+  }
+  // Flood-fill the actual excavated cells, not the declared room graph.
+  const first=d.denseRooms[0].door, seen=new Set([key(...first)]), queue=[key(...first)];
+  for(let i=0;i<queue.length;i++)for(const delta of [1,-1,S,-S,S*S,-S*S]) {
+    const next=queue[i]+delta;
+    if(d.air.has(next)&&!seen.has(next)){seen.add(next);queue.push(next);}
+  }
+  for(const room of d.denseRooms)assert.ok(seen.has(key(...room.door)));
+  for(const door of doorSet)assert.ok(seen.has(door));
+  assert.equal(seen.size,d.air.size);
+  assert.ok([...d.solid.keys()].every(k=>!d.air.has(k)));
+  const shaftColumns=new Map(d.shafts.map(s=>[s.z*S+s.x,s]));
+  const standable=k=>{
+    if(!d.air.has(k)||!d.air.has(k+S*S))return false;
+    if(!d.air.has(k-S*S))return true;
+    const shaft=shaftColumns.get(k%(S*S));
+    return shaft && Math.floor(k/(S*S))<=shaft.top+1;
+  };
+  const walking=new Set([key(...first)]),walkQueue=[key(...first)];
+  for(let i=0;i<walkQueue.length;i++) {
+    const k=walkQueue[i], shaft=shaftColumns.get(k%(S*S));
+    const deltas=shaft?[1,-1,S,-S,S*S,-S*S]:[1,-1,S,-S];
+    for(const delta of deltas) {
+      const next=k+delta;
+      if(!walking.has(next)&&standable(next)){walking.add(next);walkQueue.push(next);}
+    }
+  }
+  for(const room of d.denseRooms)assert.ok(walking.has(key(...room.door)),'Room requires flying');
+  for(const p of d.ports)assert.ok(walking.has(key(...p.door)),'Orange door requires flying');
+  console.log(`Seed ${seed}: ${d.houses.length} wall houses, ${d.ports.length} doors, ${d.denseRooms.length} dense rooms, physical air connected (${seen.size} cells).`);
+}

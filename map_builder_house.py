@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,11 +26,15 @@ HOUSE_MIN_HEIGHT = HOUSE_MIN_FLOORS * FLOOR_STEP + 1
 HOUSE_MAX_HEIGHT = HOUSE_MAX_FLOORS * FLOOR_STEP + 1
 HOUSE_MIN_DEPTH = 4
 HOUSE_MAX_DEPTH = 10
+HOUSE_MIN_TOTAL_DEPTH = 10
+HOUSE_MAX_TOTAL_DEPTH = 20
+HOUSE_REAR_DOOR_ONE_IN = 6
 HOUSE_CHAIN_ATTEMPTS = 80
 HOUSE_ROOT_SPACING = 150
 HOUSE_CHAIN_MIN = 5
 HOUSE_CHAIN_MAX = 11
 HOUSE_CONNECT_MAX_DISTANCE = 50
+HOUSE_WIDE_BRIDGE_MAX_LENGTH = 100
 HOUSE_MAX_CONNECTIONS_PER_HOUSE = 2
 HOUSE_BRIDGE_WIDTH = 2
 HOUSE_BRIDGE_CLEARANCE_RADIUS = 2
@@ -63,6 +68,7 @@ BLOCK_BY_KIND = {
     "house_bridge": "minecraft:stone_slab",
     "house_stair": "minecraft:stone_stairs",
     "window": "minecraft:black_stained_glass",
+    "rear_door": "minecraft:orange_concrete",
 }
 
 BRIDGE_BLOCK_KINDS = {"house_bridge", "house_stair"}
@@ -361,9 +367,12 @@ def local_bridge_cells(
     return [local_surface_to_world(zone, side, along, y, out + width_offset) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
 
 
-def world_route_cells(route: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+def world_route_cells(route: list[tuple[int, int, int]], wall_zone: Zone | None = None) -> list[tuple[int, int, int]]:
     cells = []
     for index, (x, y, z) in enumerate(route):
+        # At the south/east walls, widen toward the courtyard rather than into the wall.
+        width_x = -1 if wall_zone and x >= wall_zone.length - HOUSE_BRIDGE_WIDTH else 1
+        width_z = -1 if wall_zone and z >= wall_zone.width - HOUSE_BRIDGE_WIDTH else 1
         previous = route[index - 1] if index > 0 else None
         following = route[index + 1] if index + 1 < len(route) else None
         dx = 0
@@ -376,9 +385,9 @@ def world_route_cells(route: list[tuple[int, int, int]]) -> list[tuple[int, int,
             dz = z - previous[2]
 
         if abs(dx) >= abs(dz):
-            width_cells = [(x, y, z + width_offset) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
+            width_cells = [(x, y, z + width_z * width_offset) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
         else:
-            width_cells = [(x + width_offset, y, z) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
+            width_cells = [(x + width_x * width_offset, y, z) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
 
         if previous is not None and following is not None:
             prev_dx = x - previous[0]
@@ -386,7 +395,7 @@ def world_route_cells(route: list[tuple[int, int, int]]) -> list[tuple[int, int,
             next_dx = following[0] - x
             next_dz = following[2] - z
             if (prev_dx, prev_dz) != (next_dx, next_dz):
-                width_cells.extend((x + ox, y, z + oz) for ox in range(HOUSE_BRIDGE_WIDTH) for oz in range(HOUSE_BRIDGE_WIDTH))
+                width_cells.extend((x + width_x * ox, y, z + width_z * oz) for ox in range(HOUSE_BRIDGE_WIDTH) for oz in range(HOUSE_BRIDGE_WIDTH))
 
         cells.extend(width_cells)
     return list(dict.fromkeys(cells))
@@ -394,6 +403,24 @@ def world_route_cells(route: list[tuple[int, int, int]]) -> list[tuple[int, int,
 
 def cells_inside_zone(zone: Zone, cells: list[tuple[int, int, int]]) -> bool:
     return all(0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width for x, y, z in cells)
+
+
+def bridge_cells_can_fit(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    cells: list[tuple[int, int, int]],
+    house_boxes: Sequence[tuple[int, int, int, int, int, int]] = (),
+) -> bool:
+    for x, y, z in cells:
+        if not (0 < x < zone.length - 1 and 0 < z < zone.width - 1 and 0 <= y < zone.height - HOUSE_DOOR_HEIGHT):
+            return False
+        if any((x, y + dy, z) in blocks for dy in range(HOUSE_DOOR_HEIGHT + 1)):
+            return False
+        # Reserve the whole room, not just shell voxels or window blocks.
+        if any(bx <= x < bx + sx and bz <= z < bz + sz and y < by + sy and y + HOUSE_DOOR_HEIGHT >= by
+               for bx, by, bz, sx, sy, sz in house_boxes):
+            return False
+    return bridge_clearance_is_open(blocks, cells)
 
 
 def bridge_clearance_is_open(
@@ -613,16 +640,11 @@ def connection_can_fit(
     side: WallSide,
     route: list[tuple[int, int]],
     out: int,
+    houses: Sequence[HouseVolume] = (),
 ) -> bool:
-    cells = []
-    for along, y in route:
-        for x, by, z in local_bridge_cells(zone, side, along, y, out):
-            cells.append((x, by, z))
-            if not (0 <= x < zone.length and 0 <= by < zone.height and 0 <= z < zone.width):
-                return False
-            if blocks.get((x, by, z)) in {"house", "window", "house_bridge", "house_stair"}:
-                return False
-    return bridge_clearance_is_open(blocks, cells)
+    cells = [cell for along, y in route for cell in local_bridge_cells(zone, side, along, y, out)]
+    boxes = [world_box_for_house(zone, side, h.along, h.y, h.out, h.width, h.height, h.depth) for h in houses]
+    return bridge_cells_can_fit(blocks, zone, cells, boxes)
 
 
 def draw_connection(
@@ -677,7 +699,7 @@ def add_house_connections(
             continue
         if not route_touches_house_floors(houses[index], houses[other_index], route):
             continue
-        if not connection_can_fit(blocks, zone, side, route, out):
+        if not connection_can_fit(blocks, zone, side, route, out, houses):
             continue
 
         added = draw_connection(blocks, zone, side, route, out, kind)
@@ -924,8 +946,11 @@ def add_close_corner_bridges(
     zone: Zone,
     rng: random.Random,
     side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+    max_length: int | None = None,
 ) -> list[dict]:
     out = HOUSE_CLOSE_CORNER_BRIDGE_OUT
+    house_boxes = [world_box_for_house(zone, side, h.along, h.y, h.out, h.width, h.height, h.depth)
+                   for side, houses in side_data.values() for h in houses]
     candidates = []
     for corner, first_side, first_houses, second_side, second_houses in adjacent_side_pairs(side_data):
         for first_index, first in enumerate(first_houses):
@@ -988,7 +1013,9 @@ def add_close_corner_bridges(
         route = corner_bridge_route(zone, rng, corner, first_side, first, second_side, second, start_y, end_y, out)
         if route is None:
             continue
-        if not edge_wall_route_can_fit(blocks, zone, route):
+        if max_length is not None and len(route) > max_length:
+            continue
+        if not edge_wall_route_can_fit(blocks, zone, route, house_boxes):
             continue
 
         kind = "house_stair" if route[0][1] != route[-1][1] or any(route[i][1] != route[i - 1][1] for i in range(1, len(route))) else "house_bridge"
@@ -1027,6 +1054,7 @@ def add_close_wall_bridges_on_side(
     houses: list[HouseVolume],
     rng: random.Random,
     target: int,
+    max_length: int | None = None,
 ) -> list[dict]:
     candidates = []
     for index, house in enumerate(houses):
@@ -1064,11 +1092,19 @@ def add_close_wall_bridges_on_side(
         if route[0][1] not in floor_levels(houses[index]) or route[-1][1] not in floor_levels(houses[other_index]):
             continue
         out = HOUSE_CLOSE_WALL_BRIDGE_OUT
-        if not connection_can_fit(blocks, zone, side, route, out):
+        if not connection_can_fit(blocks, zone, side, route, out, houses):
             continue
         start_connector = wall_bridge_connector_route(zone, side, houses[index], route[0][0], route[0][1], out)
         end_connector = wall_bridge_connector_route(zone, side, houses[other_index], route[-1][0], route[-1][1], out)
+        # The two shared junction cells count once along the complete walking path.
+        path_length = len(start_connector) + len(route) + len(end_connector) - 2
+        if max_length is not None and path_length > max_length:
+            continue
         if not world_routes_can_fit(blocks, zone, [start_connector, end_connector]):
+            continue
+        house_boxes = [world_box_for_house(zone, side, h.along, h.y, h.out, h.width, h.height, h.depth) for h in houses]
+        if not all(bridge_cells_can_fit(blocks, zone, world_route_cells(connector), house_boxes)
+                   for connector in (start_connector, end_connector)):
             continue
 
         added = draw_connection(blocks, zone, side, route, out, "house_bridge")
@@ -1103,6 +1139,7 @@ def add_close_wall_bridges(
     zone: Zone,
     rng: random.Random,
     side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+    max_length: int | None = None,
 ) -> list[dict]:
     target = rng.randrange(HOUSE_CLOSE_WALL_BRIDGE_MIN, HOUSE_CLOSE_WALL_BRIDGE_MAX + 1)
     per_side = {name: max(1, target // max(1, len(side_data))) for name in side_data}
@@ -1116,7 +1153,7 @@ def add_close_wall_bridges(
         if remaining <= 0:
             break
         side_target = min(remaining, per_side[side_name] + 2)
-        connections.extend(add_close_wall_bridges_on_side(blocks, zone, side, houses, rng, side_target))
+        connections.extend(add_close_wall_bridges_on_side(blocks, zone, side, houses, rng, side_target, max_length))
 
     return connections
 
@@ -1220,13 +1257,7 @@ def world_route_can_fit(
     zone: Zone,
     route: list[tuple[int, int, int]],
 ) -> bool:
-    cells = world_route_cells(route)
-    for x, y, z in cells:
-        if not (0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width):
-            return False
-        if blocks.get((x, y, z)) in {"wall", "house", "window", "house_bridge", "house_stair"}:
-            return False
-    return bridge_clearance_is_open(blocks, cells)
+    return bridge_cells_can_fit(blocks, zone, world_route_cells(route))
 
 
 def draw_world_route(
@@ -1246,14 +1277,9 @@ def edge_wall_route_can_fit(
     blocks: dict[tuple[int, int, int], str],
     zone: Zone,
     route: list[tuple[int, int, int]],
+    house_boxes: Sequence[tuple[int, int, int, int, int, int]] = (),
 ) -> bool:
-    cells = world_route_cells(route)
-    for x, y, z in cells:
-        if not (0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width):
-            return False
-        if blocks.get((x, y, z)) in {"window", "house_bridge", "house_stair"}:
-            return False
-    return bridge_clearance_is_open(blocks, cells)
+    return bridge_cells_can_fit(blocks, zone, world_route_cells(route, wall_zone=zone), house_boxes)
 
 
 def draw_edge_wall_route(
@@ -1262,12 +1288,12 @@ def draw_edge_wall_route(
     route: list[tuple[int, int, int]],
     kind: str,
 ) -> int:
-    added = 0
-    for x, y, z in world_route_cells(route):
-        if 0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width:
-            blocks[(x, y, z)] = kind
-            added += 1
-    return added
+    if not edge_wall_route_can_fit(blocks, zone, route):
+        return 0
+    cells = world_route_cells(route, wall_zone=zone)
+    for cell in cells:
+        blocks[cell] = kind
+    return len(cells)
 
 
 def add_close_cross_bridges(
@@ -1275,6 +1301,7 @@ def add_close_cross_bridges(
     zone: Zone,
     rng: random.Random,
     side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+    max_length: int | None = None,
 ) -> list[dict]:
     candidates = []
     for first_side, first_houses, second_side, second_houses in opposite_side_pairs(side_data):
@@ -1322,6 +1349,8 @@ def add_close_cross_bridges(
 
         route = cross_bridge_route(zone, first_side, first, second_side, second, lateral, first_y, second_y)
         if not route:
+            continue
+        if max_length is not None and len(route) > max_length:
             continue
         if not cross_bridge_height_far_enough(route, used_ranges):
             continue
@@ -1503,7 +1532,7 @@ def generate_house_zone(
     side_data: dict[str, tuple[WallSide, list[HouseVolume]]] = {}
     for side in wall_sides_for_profile(zone, profile):
         side_houses, side_connections, chain, placed = generate_houses_on_side(
-            blocks, zone, side, rng, chain, add_connections=profile != "close"
+            blocks, zone, side, rng, chain, add_connections=False
         )
         side_data[side.name] = (side, placed)
         for house in side_houses:
@@ -1513,16 +1542,84 @@ def generate_house_zone(
         houses.extend(side_houses)
         connections.extend(side_connections)
 
-    if profile == "close":
-        connections.extend(add_close_corner_bridges(blocks, zone, rng, side_data))
-        connections.extend(add_close_wall_bridges(blocks, zone, rng, side_data))
-        for side, placed in side_data.values():
-            for connection in add_house_connections(blocks, zone, side, placed):
-                connection["profile"] = profile
-                connections.append(connection)
-        connections.extend(add_close_cross_bridges(blocks, zone, rng, side_data))
+    # Both enclosures share the same routes, computed after every house is placed.
+    max_bridge_length = HOUSE_WIDE_BRIDGE_MAX_LENGTH if profile == "wide" else None
+    connections.extend(add_close_corner_bridges(blocks, zone, rng, side_data, max_bridge_length))
+    connections.extend(add_close_wall_bridges(blocks, zone, rng, side_data, max_bridge_length))
+    for side, placed in side_data.values():
+        connections.extend(add_house_connections(blocks, zone, side, placed))
+    connections.extend(add_close_cross_bridges(blocks, zone, rng, side_data, max_bridge_length))
+    for connection in connections:
+        connection["profile"] = profile
 
+    extend_houses_behind_walls(blocks, zone, houses, seed)
     return blocks, houses, connections
+
+
+def extend_houses_behind_walls(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    houses: list[dict],
+    seed: int,
+) -> None:
+    # Separate RNG and a final pass keep the existing facades and bridge routes unchanged.
+    rng = random.Random(seed ^ 0x484F5553)
+    sides = {side.name: side for side in wall_sides(zone)}
+    for house in houses:
+        side = sides[house["side"]]
+        local = house["local"]
+        width, height, front_depth = local["size"]
+        total_depth = rng.randint(max(HOUSE_MIN_TOTAL_DEPTH, front_depth + 1), HOUSE_MAX_TOTAL_DEPTH)
+        extension = total_depth - front_depth
+        along0, y0 = local["along"], local["y"]
+
+        # The old back wall becomes interior air; keep its floors and side edges.
+        for dy in range(height):
+            if dy % FLOOR_STEP == 0:
+                continue
+            for along in range(along0 + 1, along0 + width - 1):
+                cell = local_surface_to_world(zone, side, along, y0 + dy, 0)
+                if blocks.get(cell) in {"house", "wall"}:
+                    blocks.pop(cell)
+
+        # These cells deliberately lie outside the wall enclosure, so do not use add_block's clipping.
+        for out in range(-extension, 0):
+            for dy in range(height):
+                for offset in range(width):
+                    if out == -extension or dy % FLOOR_STEP == 0 or offset in (0, width - 1):
+                        cell = local_surface_to_world(zone, side, along0 + offset, y0 + dy, out)
+                        blocks[cell] = "house"
+
+        axis = 2 if side.axis == "x" else 0
+        normal = side.normal[1] if side.axis == "x" else side.normal[0]
+        if normal > 0:
+            house["box"][axis] -= extension
+        house["box"][axis + 3] = total_depth
+        local["front_depth"] = front_depth
+        local["back_depth"] = extension
+        local["out"] = -extension
+        local["size"][2] = total_depth
+
+    add_rear_doors(blocks, houses, seed)
+
+
+def add_rear_doors(
+    blocks: dict[tuple[int, int, int], str],
+    houses: list[dict],
+    seed: int,
+) -> None:
+    rng = random.Random(seed ^ 0x444F4F52)
+    for house in rng.sample(houses, len(houses) // HOUSE_REAR_DOOR_ONE_IN):
+        x, y, z, sx, _sy, sz = house["box"]
+        side = house["side"]
+        dx, dz = x + sx // 2, z + sz // 2
+        if side in {"north", "south"}:
+            dz = z if side == "north" else z + sz - 1
+        else:
+            dx = x if side == "west" else x + sx - 1
+        for dy in (1, 2):
+            blocks[(dx, y + dy, dz)] = "rear_door"
+        house["rear_door"] = {"pos": [dx, y + 1, dz], "size": [1, 2, 1]}
 
 
 def blocks_to_runs(blocks: dict[tuple[int, int, int], str]) -> list[dict]:
@@ -1574,6 +1671,9 @@ def offset_houses(houses: list[dict], dx: int, dz: int, profile: str) -> list[di
     for house in houses:
         item = dict(house)
         item["box"] = offset_box(house["box"], dx, dz)
+        if "rear_door" in house:
+            x, y, z = house["rear_door"]["pos"]
+            item["rear_door"] = {**house["rear_door"], "pos": [x + dx, y, z + dz]}
         item["profile"] = profile
         shifted.append(item)
     return shifted
@@ -1623,7 +1723,8 @@ def build_compare_payload(args: argparse.Namespace) -> dict:
                 "wide": {"offset": [wide_offset_x, 0, 0], "size": [wide_zone.length, wide_zone.height, wide_zone.width]},
             },
             "wall_thickness": WALL_THICKNESS,
-            "house_depth": [HOUSE_MIN_DEPTH, HOUSE_MAX_DEPTH],
+            "house_depth": [HOUSE_MIN_TOTAL_DEPTH, HOUSE_MAX_TOTAL_DEPTH],
+            "house_front_depth": [HOUSE_MIN_DEPTH, HOUSE_MAX_DEPTH],
             "house_width": [HOUSE_MIN_WIDTH, HOUSE_MAX_WIDTH],
             "house_height": [HOUSE_MIN_HEIGHT, HOUSE_MAX_HEIGHT],
             "floor_step": FLOOR_STEP,
@@ -1665,7 +1766,8 @@ def build_payload(args: argparse.Namespace) -> dict:
         "settings": {
             "seed": args.seed,
             "wall_thickness": WALL_THICKNESS,
-            "house_depth": [HOUSE_MIN_DEPTH, HOUSE_MAX_DEPTH],
+            "house_depth": [HOUSE_MIN_TOTAL_DEPTH, HOUSE_MAX_TOTAL_DEPTH],
+            "house_front_depth": [HOUSE_MIN_DEPTH, HOUSE_MAX_DEPTH],
             "house_width": [HOUSE_MIN_WIDTH, HOUSE_MAX_WIDTH],
             "house_height": [HOUSE_MIN_HEIGHT, HOUSE_MAX_HEIGHT],
             "floor_step": FLOOR_STEP,
