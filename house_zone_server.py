@@ -6,7 +6,19 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
-from map_builder_house import DEFAULT_OUT, build_payload
+from map_builde_dense_1 import (
+    DEFAULT_OUT as DENSE_DEFAULT_OUT,
+    HOUSE_COUNT as DENSE_HOUSE_COUNT,
+    ZONE_HEIGHT as DENSE_ZONE_HEIGHT,
+    ZONE_LENGTH as DENSE_ZONE_LENGTH,
+    ZONE_WIDTH as DENSE_ZONE_WIDTH,
+    Zone as DenseZone,
+    build_dense_payload,
+)
+from map_builder_house import DEFAULT_OUT as HOUSE_DEFAULT_OUT, build_payload as build_house_payload
+
+
+DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
 
 
 class HouseZoneHandler(SimpleHTTPRequestHandler):
@@ -14,6 +26,9 @@ class HouseZoneHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/house-zone":
             self.send_house_zone(parsed.query)
+            return
+        if parsed.path == "/api/dense-1":
+            self.send_dense_1(parsed.query)
             return
         super().do_GET()
 
@@ -25,9 +40,35 @@ class HouseZoneHandler(SimpleHTTPRequestHandler):
             height=int(params.get("height", ["200"])[0]),
             seed=int(params.get("seed", ["42"])[0]),
             compare=params.get("compare", ["1"])[0] != "0",
-            out=DEFAULT_OUT,
+            out=HOUSE_DEFAULT_OUT,
         )
-        payload = build_payload(args)
+        payload = build_house_payload(args)
+        self.send_json(payload)
+
+    def send_dense_1(self, query: str) -> None:
+        params = parse_qs(query)
+        seed = int(params.get("seed", ["42"])[0])
+        target = int(params.get("houses", [str(DENSE_HOUSE_COUNT)])[0])
+        zone = DenseZone(
+            length=int(params.get("length", [str(DENSE_ZONE_LENGTH)])[0]),
+            width=int(params.get("width", [str(DENSE_ZONE_WIDTH)])[0]),
+            height=int(params.get("height", [str(DENSE_ZONE_HEIGHT)])[0]),
+        )
+        cache_key = (seed, target, zone.length, zone.width, zone.height)
+        if cache_key in DENSE_CACHE:
+            self.send_json(DENSE_CACHE[cache_key])
+            return
+
+        default_key = (42, DENSE_HOUSE_COUNT, DENSE_ZONE_LENGTH, DENSE_ZONE_WIDTH, DENSE_ZONE_HEIGHT)
+        if cache_key == default_key and DENSE_DEFAULT_OUT.exists():
+            payload = json.loads(DENSE_DEFAULT_OUT.read_text(encoding="utf-8"))
+        else:
+            payload = build_dense_payload(seed=seed, target=target, zone=zone)
+
+        DENSE_CACHE[cache_key] = payload
+        self.send_json(payload)
+
+    def send_json(self, payload: dict) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -47,7 +88,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     server = ThreadingHTTPServer((args.host, args.port), HouseZoneHandler)
-    print(f"house zone server: http://{args.host}:{args.port}/house_zone.html")
+    print(f"map builder hub: http://{args.host}:{args.port}/")
     server.serve_forever()
 
 

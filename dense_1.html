@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dense House Test 1</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+        background: #eef2f5;
+      }
+
+      #panel,
+      #help {
+        position: fixed;
+        left: 10px;
+        z-index: 2;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid #cbd5df;
+        color: #1f2933;
+        font-size: 13px;
+      }
+
+      #panel {
+        top: 10px;
+        min-width: 420px;
+      }
+
+      #stats {
+        margin-bottom: 10px;
+      }
+
+      input,
+      button {
+        border: 1px solid #cbd5df;
+        background: rgba(255, 255, 255, 0.92);
+        color: #1f2933;
+        font: inherit;
+        height: 28px;
+        padding: 0 8px;
+      }
+
+      input {
+        width: 86px;
+      }
+
+      #help {
+        bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <div id="stats">Chargement...</div>
+      <input id="seed" type="number" value="42" />
+      <button id="update">Update</button>
+      <button id="random">Random</button>
+    </div>
+    <div id="help">ZQSD bouger · Espace monter · Ctrl/C descendre · Shift rapide · clic souris pour regarder</div>
+    <script type="module" src="./dense_1_viewer.js?v=dense-ladder-ceiling-20260827"></script>
+  </body>
+</html>

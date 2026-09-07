@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Map Builder Hub</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef2f5;
+        --panel: #ffffff;
+        --line: #cad4df;
+        --text: #1f2933;
+        --muted: #607080;
+        --button: #243447;
+        --button-hover: #172232;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      main {
+        width: min(940px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+
+      header {
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .item {
+        display: flex;
+        min-height: 118px;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .item h2 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+
+      .item span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .button {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 0 10px;
+        border-radius: 4px;
+        background: var(--button);
+        color: #ffffff;
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      .button:hover {
+        background: var(--button-hover);
+      }
+
+      section + section {
+        margin-top: 22px;
+      }
+
+      h3 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Map Builder Hub</h1>
+        <p>Acces rapide aux zones de test.</p>
+      </header>
+
+      <section>
+        <h3>Viewers</h3>
+        <div class="grid">
+          <article class="item">
+            <div>
+              <h2>Generation demo</h2>
+              <span>Prototype 5000 x 5000 x 300, secteurs mixtes.</span>
+            </div>
+            <a class="button" href="./generation_demo.html">Ouvrir</a>
+          </article>
+          <article class="item">
+            <div>
+              <h2>Map complete</h2>
+              <span>Noise map, structures, walls et rendu global.</span>
+            </div>
+            <a class="button" href="./web/index.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>Dense houses</h2>
+              <span>Zone 500x500x200 avec maisons, tunnels et export Minecraft.</span>
+            </div>
+            <a class="button" href="./dense_1.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>House walls</h2>
+              <span>Comparaison house close et house wide le long des murs.</span>
+            </div>
+            <a class="button" href="./house_zone.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>Bridge zone</h2>
+              <span>Test dedie aux ponts, plateformes, supports et tours.</span>
+            </div>
+            <a class="button" href="./bridge_zone.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>Building long</h2>
+              <span>Zone 1000x280x150 avec colonnes regulieres et trois rangees de batiments.</span>
+            </div>
+            <a class="button" href="./building_long.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>House tunnel</h2>
+              <span>200 x 30 x 41 blocs, maisons sur deux parois.</span>
+            </div>
+            <a class="button" href="./house_tunnel.html">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>House tunnel snake</h2>
+              <span>1500 blocs, virages et ponts entre maisons.</span>
+            </div>
+            <a class="button" href="./house_tunnel_snake.html">Ouvrir</a>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h3>Exports</h3>
+        <div class="grid">
+          <article class="item">
+            <div>
+              <h2>Export Minecraft</h2>
+              <span>Runs ordonnees pour remplir la zone, creuser l'air, puis poser les structures.</span>
+            </div>
+            <a class="button" href="./exports/dense_1_minecraft.json">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>Export building long</h2>
+              <span>Runs Minecraft sombres pour la zone building_long.</span>
+            </div>
+            <a class="button" href="./exports/building_long_minecraft.json">Ouvrir</a>
+          </article>
+
+          <article class="item">
+            <div>
+              <h2>Export web dense</h2>
+              <span>Runs visibles utilisees par le viewer dense.</span>
+            </div>
+            <a class="button" href="./exports/dense_1.json">Ouvrir</a>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import * as THREE from './web/vendor/three.module.js';
 
-const DATA_URL = './exports/bridge_zone.json?v=dangling-connect-20260818';
+const DATA_URL = './exports/bridge_zone.json?v=towers-spacing70-20260907';
 const stats = document.querySelector('#stats');
 const keys = new Set();
 
@@ -11,8 +11,7 @@ scene.fog = new THREE.Fog(0xeef3f7, 420, 1300);
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 1800);
 camera.position.set(-430, 78, -130);
 camera.rotation.order = 'YXZ';
-camera.rotation.x = -0.12;
-camera.rotation.y = -0.72;
+camera.lookAt(-250, 60, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(1);
@@ -33,6 +32,7 @@ const materialByKind = new Map([
   ['railing', new THREE.MeshBasicMaterial({ color: 0x343a42 })],
   ['support', new THREE.MeshBasicMaterial({ color: 0x555b64 })],
   ['tower', new THREE.MeshBasicMaterial({ color: 0x22c55e })],
+  ['door', new THREE.MeshBasicMaterial({ color: 0xff8800 })],
 ]);
 
 let zone = { size: [1000, 120, 300] };
@@ -95,6 +95,13 @@ async function loadBridgeZone() {
   if (!response.ok) throw new Error(`Impossible de charger ${DATA_URL}: ${response.status}`);
   const payload = await response.json();
   zone = payload.zone;
+  const firstTower = payload.towers?.[0];
+  if (firstTower) {
+    const [length, , width] = zone.size;
+    const [x, y, z] = firstTower.door.pos;
+    camera.position.set(x - length / 2 - 20, payload.settings.main_bridge.y + 6, 0);
+    camera.lookAt(x - length / 2, y + 1, z - width / 2);
+  }
   const runsByKind = new Map();
 
   for (const run of payload.runs || []) {
@@ -111,12 +118,7 @@ async function loadBridgeZone() {
   }
 
   addHelpers();
-  const mainRuns = runsByKind.get('main_bridge')?.length || 0;
-  const smallRuns = runsByKind.get('small_bridge')?.length || 0;
-  const landings = runsByKind.get('landing')?.length || 0;
-  const supports = runsByKind.get('support')?.length || 0;
-  const towers = runsByKind.get('tower')?.length || 0;
-  stats.textContent = `${blockCount} blocs · ${runCount} runs · ${mainRuns} runs pont central · ${smallRuns} runs passerelles · ${landings} plateformes · ${supports} supports · ${towers} runs tours`;
+  stats.textContent = `${payload.stats.towers} tours · ${payload.paths.length} ponts secondaires · ${payload.stats.towers} portes · 1 pont central`;
 }
 
 document.body.addEventListener('click', () => {

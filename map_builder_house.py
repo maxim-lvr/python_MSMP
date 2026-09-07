@@ -31,9 +31,26 @@ HOUSE_CHAIN_MIN = 5
 HOUSE_CHAIN_MAX = 11
 HOUSE_CONNECT_MAX_DISTANCE = 50
 HOUSE_MAX_CONNECTIONS_PER_HOUSE = 2
-HOUSE_BRIDGE_WIDTH = 1
+HOUSE_BRIDGE_WIDTH = 2
+HOUSE_BRIDGE_CLEARANCE_RADIUS = 2
 HOUSE_CONNECTION_OUT = 1
 HOUSE_DOOR_HEIGHT = 3
+HOUSE_CLOSE_CROSS_BRIDGE_MIN = 2
+HOUSE_CLOSE_CROSS_BRIDGE_MAX = 8
+HOUSE_CLOSE_CROSS_BRIDGE_MIN_Y_GAP = 10
+HOUSE_CLOSE_CROSS_BRIDGE_MAX_SLOPE_STEP = 3
+HOUSE_CLOSE_WALL_BRIDGE_MIN = 5
+HOUSE_CLOSE_WALL_BRIDGE_MAX = 15
+HOUSE_CLOSE_WALL_BRIDGE_MIN_LENGTH = 10
+HOUSE_CLOSE_WALL_BRIDGE_MAX_LENGTH = 140
+HOUSE_CLOSE_WALL_BRIDGE_MAX_VERTICAL = 12
+HOUSE_CLOSE_WALL_BRIDGE_OUT = HOUSE_MAX_DEPTH + 1
+HOUSE_CLOSE_CORNER_BRIDGE_MIN = 3
+HOUSE_CLOSE_CORNER_BRIDGE_MAX = 8
+HOUSE_CLOSE_CORNER_BRIDGE_MIN_LENGTH = 24
+HOUSE_CLOSE_CORNER_BRIDGE_MAX_LENGTH = 180
+HOUSE_CLOSE_CORNER_BRIDGE_MAX_PER_CORNER = 2
+HOUSE_CLOSE_CORNER_BRIDGE_OUT = WALL_THICKNESS
 WINDOW_WIDTH = 2
 WINDOW_HEIGHT = 2
 WINDOW_GAP = 5
@@ -47,6 +64,8 @@ BLOCK_BY_KIND = {
     "house_stair": "minecraft:stone_stairs",
     "window": "minecraft:black_stained_glass",
 }
+
+BRIDGE_BLOCK_KINDS = {"house_bridge", "house_stair"}
 
 
 @dataclass(frozen=True)
@@ -332,6 +351,69 @@ def local_surface_to_world(
     return x, y, along
 
 
+def local_bridge_cells(
+    zone: Zone,
+    side: WallSide,
+    along: int,
+    y: int,
+    out: int,
+) -> list[tuple[int, int, int]]:
+    return [local_surface_to_world(zone, side, along, y, out + width_offset) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
+
+
+def world_route_cells(route: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+    cells = []
+    for index, (x, y, z) in enumerate(route):
+        previous = route[index - 1] if index > 0 else None
+        following = route[index + 1] if index + 1 < len(route) else None
+        dx = 0
+        dz = 0
+        if following is not None:
+            dx = following[0] - x
+            dz = following[2] - z
+        elif previous is not None:
+            dx = x - previous[0]
+            dz = z - previous[2]
+
+        if abs(dx) >= abs(dz):
+            width_cells = [(x, y, z + width_offset) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
+        else:
+            width_cells = [(x + width_offset, y, z) for width_offset in range(HOUSE_BRIDGE_WIDTH)]
+
+        if previous is not None and following is not None:
+            prev_dx = x - previous[0]
+            prev_dz = z - previous[2]
+            next_dx = following[0] - x
+            next_dz = following[2] - z
+            if (prev_dx, prev_dz) != (next_dx, next_dz):
+                width_cells.extend((x + ox, y, z + oz) for ox in range(HOUSE_BRIDGE_WIDTH) for oz in range(HOUSE_BRIDGE_WIDTH))
+
+        cells.extend(width_cells)
+    return list(dict.fromkeys(cells))
+
+
+def cells_inside_zone(zone: Zone, cells: list[tuple[int, int, int]]) -> bool:
+    return all(0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width for x, y, z in cells)
+
+
+def bridge_clearance_is_open(
+    blocks: dict[tuple[int, int, int], str],
+    cells: list[tuple[int, int, int]],
+) -> bool:
+    cell_set = set(cells)
+    radius = HOUSE_BRIDGE_CLEARANCE_RADIUS
+    for x, y, z in cells:
+        for dy in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    checked = (x + dx, y + dy, z + dz)
+                    if checked in cell_set:
+                        continue
+                    if blocks.get(checked) in BRIDGE_BLOCK_KINDS:
+                        return False
+    return True
+
+
 def add_surface_platform_block(
     blocks: dict[tuple[int, int, int], str],
     zone: Zone,
@@ -342,8 +424,7 @@ def add_surface_platform_block(
     kind: str,
 ) -> int:
     added = 0
-    for width_offset in range(HOUSE_BRIDGE_WIDTH):
-        x, by, z = local_surface_to_world(zone, side, along, y, max(0, out - width_offset))
+    for x, by, z in local_bridge_cells(zone, side, along, y, out):
         if add_block_if_open(blocks, zone, x, by, z, kind):
             added += 1
     return added
@@ -401,6 +482,57 @@ def open_connection_doors(
         max_out = min(house.depth - 1, HOUSE_CONNECTION_OUT + 1)
         for out in range(HOUSE_CONNECTION_OUT, max_out + 1):
             remove_local_house_blocks(blocks, zone, side, along, floor_y + 1, out, HOUSE_DOOR_HEIGHT)
+
+
+def house_facade_coord(zone: Zone, side: WallSide, house: HouseVolume) -> int:
+    x0, _y0, z0, sx, _sy, sz = world_box_for_house(
+        zone, side, house.along, house.y, house.out, house.width, house.height, house.depth
+    )
+    if side.axis == "x":
+        return z0 + sz - 1 if side.normal[1] > 0 else z0
+    return x0 + sx - 1 if side.normal[0] > 0 else x0
+
+
+def open_cross_bridge_door(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    side: WallSide,
+    house: HouseVolume,
+    along: int,
+    floor_y: int,
+) -> None:
+    facade = house_facade_coord(zone, side, house)
+    if side.axis == "x":
+        for dy in range(1, HOUSE_DOOR_HEIGHT + 1):
+            if blocks.get((along, floor_y + dy, facade)) in {"house", "window"}:
+                blocks.pop((along, floor_y + dy, facade))
+        return
+
+    for dy in range(1, HOUSE_DOOR_HEIGHT + 1):
+        if blocks.get((facade, floor_y + dy, along)) in {"house", "window"}:
+            blocks.pop((facade, floor_y + dy, along))
+
+
+def open_side_bridge_door(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    side: WallSide,
+    house: HouseVolume,
+    door_along: int,
+    floor_y: int,
+    out: int,
+) -> None:
+    if side.axis == "x":
+        z = side.fixed + side.normal[1] * out
+        for dy in range(1, HOUSE_DOOR_HEIGHT + 1):
+            if blocks.get((door_along, floor_y + dy, z)) in {"house", "window", "wall"}:
+                blocks.pop((door_along, floor_y + dy, z))
+        return
+
+    x = side.fixed + side.normal[0] * out
+    for dy in range(1, HOUSE_DOOR_HEIGHT + 1):
+        if blocks.get((x, floor_y + dy, door_along)) in {"house", "window", "wall"}:
+            blocks.pop((x, floor_y + dy, door_along))
 
 
 def nearest_house_distance(a: HouseVolume, b: HouseVolume) -> int:
@@ -482,14 +614,15 @@ def connection_can_fit(
     route: list[tuple[int, int]],
     out: int,
 ) -> bool:
+    cells = []
     for along, y in route:
-        for width_offset in range(HOUSE_BRIDGE_WIDTH):
-            x, by, z = local_surface_to_world(zone, side, along, y, max(0, out - width_offset))
+        for x, by, z in local_bridge_cells(zone, side, along, y, out):
+            cells.append((x, by, z))
             if not (0 <= x < zone.length and 0 <= by < zone.height and 0 <= z < zone.width):
                 return False
             if blocks.get((x, by, z)) in {"house", "window", "house_bridge", "house_stair"}:
                 return False
-    return True
+    return bridge_clearance_is_open(blocks, cells)
 
 
 def draw_connection(
@@ -565,6 +698,657 @@ def add_house_connections(
                 "out": out,
                 "blocks": added,
                 "route": [[along, y] for along, y in route],
+            }
+        )
+
+    return connections
+
+
+def wall_bridge_floor_pair(a: HouseVolume, b: HouseVolume, rng: random.Random) -> tuple[int, int] | None:
+    pairs = []
+    for ay in floor_levels(a):
+        for by in floor_levels(b):
+            vertical = abs(by - ay)
+            if vertical <= HOUSE_CLOSE_WALL_BRIDGE_MAX_VERTICAL:
+                pairs.append((vertical, ay, by))
+    if not pairs:
+        return None
+
+    pairs.sort(key=lambda item: (item[0] if rng.random() < 0.65 else item[0] + rng.randrange(0, 4), rng.random()))
+    _vertical, ay, by = pairs[0]
+    return ay, by
+
+
+def wall_bridge_route(start: int, end: int, start_y: int, end_y: int, rng: random.Random) -> list[tuple[int, int]]:
+    if start > end:
+        return []
+
+    alongs = list(range(start, end + 1))
+    length = len(alongs)
+    vertical = end_y - start_y
+    route = []
+
+    if vertical == 0 and length >= 18 and start_y > 4 and rng.random() < 0.7:
+        dip = rng.randrange(1, min(4, start_y - 1, max(1, length // 6)) + 1)
+        down_start = rng.randrange(3, max(4, length // 3))
+        up_start = max(down_start + dip + 2, length - dip - rng.randrange(3, max(4, length // 3)))
+        up_start = min(up_start, length - dip)
+        for index, along in enumerate(alongs):
+            if down_start <= index < down_start + dip:
+                y = start_y - (index - down_start + 1)
+            elif down_start + dip <= index < up_start:
+                y = start_y - dip
+            elif up_start <= index < up_start + dip:
+                y = start_y - dip + (index - up_start + 1)
+            else:
+                y = start_y
+            route.append((along, y))
+        return route
+
+    step_count = abs(vertical)
+    flat_before = 0
+    if step_count and length > step_count + 2:
+        flat_before = rng.randrange(1, length - step_count)
+
+    current_y = start_y
+    direction = 1 if vertical > 0 else -1
+    for index, along in enumerate(alongs):
+        if step_count and flat_before <= index < flat_before + step_count:
+            current_y += direction
+        route.append((along, current_y))
+    if route:
+        route[-1] = (route[-1][0], end_y)
+    return route
+
+
+def wall_bridge_connector_route(
+    zone: Zone,
+    side: WallSide,
+    house: HouseVolume,
+    along: int,
+    y: int,
+    out: int,
+) -> list[tuple[int, int, int]]:
+    facade = house_facade_coord(zone, side, house)
+    if side.axis == "x":
+        bridge_z = side.fixed + side.normal[1] * out
+        start_z = facade + side.normal[1]
+        direction = 1 if bridge_z >= start_z else -1
+        return [(along, y, z) for z in range(start_z, bridge_z + direction, direction)]
+
+    bridge_x = side.fixed + side.normal[0] * out
+    start_x = facade + side.normal[0]
+    direction = 1 if bridge_x >= start_x else -1
+    return [(x, y, along) for x in range(start_x, bridge_x + direction, direction)]
+
+
+def world_routes_can_fit(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    routes: list[list[tuple[int, int, int]]],
+) -> bool:
+    for route in routes:
+        if not world_route_can_fit(blocks, zone, route):
+            return False
+    return True
+
+
+def side_route_to_world(
+    zone: Zone,
+    side: WallSide,
+    start_along: int,
+    end_along: int,
+    y_values: list[int],
+    out: int,
+) -> list[tuple[int, int, int]]:
+    if start_along <= end_along:
+        alongs = list(range(start_along, end_along + 1))
+    else:
+        alongs = list(range(start_along, end_along - 1, -1))
+    return [local_surface_to_world(zone, side, along, y, out) for along, y in zip(alongs, y_values)]
+
+
+def side_route_length(start_along: int, end_along: int) -> int:
+    return abs(end_along - start_along) + 1
+
+
+def y_profile_for_path(count: int, start_y: int, end_y: int, rng: random.Random) -> list[int] | None:
+    if count <= 0:
+        return None
+    vertical = end_y - start_y
+    if abs(vertical) > count - 1:
+        return None
+
+    if vertical == 0 and count >= 24 and start_y > 4 and rng.random() < 0.55:
+        dip = rng.randrange(1, min(5, start_y - 1, max(1, count // 8)) + 1)
+        down_start = rng.randrange(3, max(4, count // 3))
+        up_start = max(down_start + dip + 3, count - dip - rng.randrange(4, max(5, count // 3)))
+        up_start = min(up_start, count - dip)
+        values = []
+        for index in range(count):
+            if down_start <= index < down_start + dip:
+                y = start_y - (index - down_start + 1)
+            elif down_start + dip <= index < up_start:
+                y = start_y - dip
+            elif up_start <= index < up_start + dip:
+                y = start_y - dip + (index - up_start + 1)
+            else:
+                y = start_y
+            values.append(y)
+        return values
+
+    values = []
+    step_count = abs(vertical)
+    flat_before = 0
+    if step_count and count > step_count + 2:
+        flat_before = rng.randrange(1, count - step_count)
+
+    current_y = start_y
+    direction = 1 if vertical > 0 else -1
+    for index in range(count):
+        if step_count and flat_before <= index < flat_before + step_count:
+            current_y += direction
+        values.append(current_y)
+    values[0] = start_y
+    values[-1] = end_y
+    return values
+
+
+def corner_along_for_side(zone: Zone, side: WallSide, corner: str, out: int) -> int:
+    if side.axis == "x":
+        return out if "west" in corner else zone.length - 1 - out
+    return out if "north" in corner else zone.width - 1 - out
+
+
+def house_edge_attach_for_corner(house: HouseVolume, side: WallSide, corner: str) -> tuple[int, int]:
+    if side.axis == "x":
+        if "west" in corner:
+            return house.along - 1, house.along
+        return house.along + house.width, house.along + house.width - 1
+
+    if "north" in corner:
+        return house.along - 1, house.along
+    return house.along + house.width, house.along + house.width - 1
+
+
+def adjacent_side_pairs(side_data: dict[str, tuple[WallSide, list[HouseVolume]]]) -> tuple[
+    tuple[str, WallSide, list[HouseVolume], WallSide, list[HouseVolume]], ...
+]:
+    pair_names = (
+        ("north_west", "north", "west"),
+        ("north_east", "north", "east"),
+        ("south_west", "south", "west"),
+        ("south_east", "south", "east"),
+    )
+    pairs = []
+    for corner, first_name, second_name in pair_names:
+        if first_name in side_data and second_name in side_data:
+            first_side, first_houses = side_data[first_name]
+            second_side, second_houses = side_data[second_name]
+            pairs.append((corner, first_side, first_houses, second_side, second_houses))
+    return tuple(pairs)
+
+
+def corner_bridge_route(
+    zone: Zone,
+    rng: random.Random,
+    corner: str,
+    first_side: WallSide,
+    first: HouseVolume,
+    second_side: WallSide,
+    second: HouseVolume,
+    start_y: int,
+    end_y: int,
+    out: int,
+) -> list[tuple[int, int, int]] | None:
+    first_along, _first_door_along = house_edge_attach_for_corner(first, first_side, corner)
+    second_along, _second_door_along = house_edge_attach_for_corner(second, second_side, corner)
+    first_corner = corner_along_for_side(zone, first_side, corner, out)
+    second_corner = corner_along_for_side(zone, second_side, corner, out)
+    first_count = side_route_length(first_along, first_corner)
+    second_count = side_route_length(second_corner, second_along)
+    total_count = first_count + second_count - 1
+    y_values = y_profile_for_path(total_count, start_y, end_y, rng)
+    if y_values is None:
+        return None
+
+    first_y = y_values[:first_count]
+    second_y = y_values[first_count - 1 :]
+    first_route = side_route_to_world(zone, first_side, first_along, first_corner, first_y, out)
+    second_route = side_route_to_world(zone, second_side, second_corner, second_along, second_y, out)
+    return first_route + second_route[1:]
+
+
+def add_close_corner_bridges(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    rng: random.Random,
+    side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+) -> list[dict]:
+    out = HOUSE_CLOSE_CORNER_BRIDGE_OUT
+    candidates = []
+    for corner, first_side, first_houses, second_side, second_houses in adjacent_side_pairs(side_data):
+        for first_index, first in enumerate(first_houses):
+            first_along, first_door_along = house_edge_attach_for_corner(first, first_side, corner)
+            first_corner = corner_along_for_side(zone, first_side, corner, out)
+            for second_index, second in enumerate(second_houses):
+                second_along, second_door_along = house_edge_attach_for_corner(second, second_side, corner)
+                second_corner = corner_along_for_side(zone, second_side, corner, out)
+                distance = abs(first_along - first_corner) + abs(second_along - second_corner) + 1
+                if distance < HOUSE_CLOSE_CORNER_BRIDGE_MIN_LENGTH or distance > HOUSE_CLOSE_CORNER_BRIDGE_MAX_LENGTH:
+                    continue
+                floor_pair = wall_bridge_floor_pair(first, second, rng)
+                if floor_pair is None:
+                    continue
+                candidates.append(
+                    (
+                        rng.random(),
+                        distance,
+                        corner,
+                        first_side,
+                        first_index,
+                        first,
+                        second_side,
+                        second_index,
+                        second,
+                        floor_pair,
+                        first_door_along,
+                        second_door_along,
+                    )
+                )
+
+    target = rng.randrange(HOUSE_CLOSE_CORNER_BRIDGE_MIN, HOUSE_CLOSE_CORNER_BRIDGE_MAX + 1)
+    connections = []
+    used_houses = set()
+    corner_counts: dict[str, int] = {}
+    for (
+        _score,
+        distance,
+        corner,
+        first_side,
+        first_index,
+        first,
+        second_side,
+        second_index,
+        second,
+        floor_pair,
+        first_door_along,
+        second_door_along,
+    ) in sorted(candidates):
+        if len(connections) >= target:
+            break
+        if corner_counts.get(corner, 0) >= HOUSE_CLOSE_CORNER_BRIDGE_MAX_PER_CORNER:
+            continue
+        first_key = (first_side.name, first_index)
+        second_key = (second_side.name, second_index)
+        if first_key in used_houses or second_key in used_houses:
+            continue
+
+        start_y, end_y = floor_pair
+        route = corner_bridge_route(zone, rng, corner, first_side, first, second_side, second, start_y, end_y, out)
+        if route is None:
+            continue
+        if not edge_wall_route_can_fit(blocks, zone, route):
+            continue
+
+        kind = "house_stair" if route[0][1] != route[-1][1] or any(route[i][1] != route[i - 1][1] for i in range(1, len(route))) else "house_bridge"
+        added = draw_edge_wall_route(blocks, zone, route, kind)
+        if added == 0:
+            continue
+
+        open_side_bridge_door(blocks, zone, first_side, first, first_door_along, route[0][1], out)
+        open_side_bridge_door(blocks, zone, second_side, second, second_door_along, route[-1][1], out)
+        used_houses.add(first_key)
+        used_houses.add(second_key)
+        corner_counts[corner] = corner_counts.get(corner, 0) + 1
+        connections.append(
+            {
+                "side": f"{first_side.name}-{second_side.name}",
+                "kind": kind,
+                "from": first_index,
+                "to": second_index,
+                "distance": distance,
+                "out": out,
+                "profile": "close",
+                "corner_bridge": True,
+                "corner": corner,
+                "blocks": added,
+                "route": [[x, y, z] for x, y, z in route],
+            }
+        )
+
+    return connections
+
+
+def add_close_wall_bridges_on_side(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    side: WallSide,
+    houses: list[HouseVolume],
+    rng: random.Random,
+    target: int,
+) -> list[dict]:
+    candidates = []
+    for index, house in enumerate(houses):
+        for other_index in range(index + 1, len(houses)):
+            other = houses[other_index]
+            if house.along + house.width // 2 <= other.along + other.width // 2:
+                left_index, left_house = index, house
+                right_index, right_house = other_index, other
+            else:
+                left_index, left_house = other_index, other
+                right_index, right_house = index, house
+
+            start = left_house.along + left_house.width // 2
+            end = right_house.along + right_house.width // 2
+            length = end - start + 1
+            if length < HOUSE_CLOSE_WALL_BRIDGE_MIN_LENGTH or length > HOUSE_CLOSE_WALL_BRIDGE_MAX_LENGTH:
+                continue
+            floor_pair = wall_bridge_floor_pair(left_house, right_house, rng)
+            if floor_pair is None:
+                continue
+            candidates.append((rng.random(), length, left_index, right_index, start, end, floor_pair))
+
+    connections = []
+    used_pairs = set()
+    for _random_score, length, index, other_index, start, end, floor_pair in sorted(candidates):
+        if len(connections) >= target:
+            break
+        if (index, other_index) in used_pairs:
+            continue
+
+        start_y, end_y = floor_pair
+        route = wall_bridge_route(start, end, start_y, end_y, rng)
+        if not route:
+            continue
+        if route[0][1] not in floor_levels(houses[index]) or route[-1][1] not in floor_levels(houses[other_index]):
+            continue
+        out = HOUSE_CLOSE_WALL_BRIDGE_OUT
+        if not connection_can_fit(blocks, zone, side, route, out):
+            continue
+        start_connector = wall_bridge_connector_route(zone, side, houses[index], route[0][0], route[0][1], out)
+        end_connector = wall_bridge_connector_route(zone, side, houses[other_index], route[-1][0], route[-1][1], out)
+        if not world_routes_can_fit(blocks, zone, [start_connector, end_connector]):
+            continue
+
+        added = draw_connection(blocks, zone, side, route, out, "house_bridge")
+        added += draw_world_route(blocks, zone, start_connector, "house_bridge")
+        added += draw_world_route(blocks, zone, end_connector, "house_bridge")
+        if added == 0:
+            continue
+
+        open_cross_bridge_door(blocks, zone, side, houses[index], route[0][0], route[0][1])
+        open_cross_bridge_door(blocks, zone, side, houses[other_index], route[-1][0], route[-1][1])
+        used_pairs.add((index, other_index))
+        connections.append(
+            {
+                "side": side.name,
+                "kind": "house_bridge",
+                "from": index,
+                "to": other_index,
+                "distance": length,
+                "out": out,
+                "profile": "close",
+                "wall_bridge": True,
+                "blocks": added,
+                "route": [[along, y] for along, y in route],
+            }
+        )
+
+    return connections
+
+
+def add_close_wall_bridges(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    rng: random.Random,
+    side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+) -> list[dict]:
+    target = rng.randrange(HOUSE_CLOSE_WALL_BRIDGE_MIN, HOUSE_CLOSE_WALL_BRIDGE_MAX + 1)
+    per_side = {name: max(1, target // max(1, len(side_data))) for name in side_data}
+    for name in rng.sample(list(side_data), target % max(1, len(side_data))):
+        per_side[name] += 1
+
+    connections = []
+    for side_name in rng.sample(list(side_data), len(side_data)):
+        side, houses = side_data[side_name]
+        remaining = target - len(connections)
+        if remaining <= 0:
+            break
+        side_target = min(remaining, per_side[side_name] + 2)
+        connections.extend(add_close_wall_bridges_on_side(blocks, zone, side, houses, rng, side_target))
+
+    return connections
+
+
+def opposite_side_pairs(side_data: dict[str, tuple[WallSide, list[HouseVolume]]]) -> tuple[
+    tuple[WallSide, list[HouseVolume], WallSide, list[HouseVolume]], ...
+]:
+    pairs = []
+    for first_name, second_name in (("north", "south"), ("west", "east")):
+        if first_name in side_data and second_name in side_data:
+            first_side, first_houses = side_data[first_name]
+            second_side, second_houses = side_data[second_name]
+            pairs.append((first_side, first_houses, second_side, second_houses))
+    return tuple(pairs)
+
+
+def opposite_house_overlap(a: HouseVolume, b: HouseVolume) -> tuple[int, int] | None:
+    start = max(a.along + 2, b.along + 2)
+    end = min(a.along + a.width - 3, b.along + b.width - 3)
+    if start > end:
+        return None
+    return start, end
+
+
+def cross_bridge_floor_pair(a: HouseVolume, b: HouseVolume, distance: int, rng: random.Random) -> tuple[int, int] | None:
+    pairs = []
+    max_vertical = distance // HOUSE_CLOSE_CROSS_BRIDGE_MAX_SLOPE_STEP
+    for ay in floor_levels(a):
+        for by in floor_levels(b):
+            vertical = abs(by - ay)
+            if vertical <= max_vertical:
+                pairs.append((vertical, ay, by))
+    if not pairs:
+        return None
+
+    pairs.sort(key=lambda item: (item[0], rng.random()))
+    _vertical, ay, by = pairs[0]
+    return ay, by
+
+
+def cross_bridge_route(
+    zone: Zone,
+    first_side: WallSide,
+    first: HouseVolume,
+    second_side: WallSide,
+    second: HouseVolume,
+    lateral: int,
+    first_y: int,
+    second_y: int,
+) -> list[tuple[int, int, int]]:
+    first_facade = house_facade_coord(zone, first_side, first)
+    second_facade = house_facade_coord(zone, second_side, second)
+
+    if first_side.axis == "x":
+        start = first_facade + first_side.normal[1]
+        end = second_facade + second_side.normal[1]
+        axis = "z"
+    else:
+        start = first_facade + first_side.normal[0]
+        end = second_facade + second_side.normal[0]
+        axis = "x"
+
+    direction = 1 if end >= start else -1
+    distance = abs(end - start)
+    if distance <= 0:
+        return []
+
+    vertical = second_y - first_y
+    route = []
+    for step in range(distance + 1):
+        moved = (abs(vertical) * step) // distance if distance else 0
+        y = first_y + (moved if vertical >= 0 else -moved)
+        if step == distance:
+            y = second_y
+        fixed = start + direction * step
+        if axis == "z":
+            route.append((lateral, y, fixed))
+        else:
+            route.append((fixed, y, lateral))
+    return route
+
+
+def cross_bridge_y_range(route: list[tuple[int, int, int]]) -> tuple[int, int]:
+    ys = [y for _x, y, _z in route]
+    return min(ys), max(ys)
+
+
+def cross_bridge_height_far_enough(
+    route: list[tuple[int, int, int]],
+    existing_ranges: list[tuple[int, int]],
+) -> bool:
+    low, high = cross_bridge_y_range(route)
+    for other_low, other_high in existing_ranges:
+        if low <= other_high + HOUSE_CLOSE_CROSS_BRIDGE_MIN_Y_GAP and high >= other_low - HOUSE_CLOSE_CROSS_BRIDGE_MIN_Y_GAP:
+            return False
+    return True
+
+
+def world_route_can_fit(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    route: list[tuple[int, int, int]],
+) -> bool:
+    cells = world_route_cells(route)
+    for x, y, z in cells:
+        if not (0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width):
+            return False
+        if blocks.get((x, y, z)) in {"wall", "house", "window", "house_bridge", "house_stair"}:
+            return False
+    return bridge_clearance_is_open(blocks, cells)
+
+
+def draw_world_route(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    route: list[tuple[int, int, int]],
+    kind: str,
+) -> int:
+    added = 0
+    for x, y, z in world_route_cells(route):
+        if add_block_if_open(blocks, zone, x, y, z, kind):
+            added += 1
+    return added
+
+
+def edge_wall_route_can_fit(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    route: list[tuple[int, int, int]],
+) -> bool:
+    cells = world_route_cells(route)
+    for x, y, z in cells:
+        if not (0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width):
+            return False
+        if blocks.get((x, y, z)) in {"window", "house_bridge", "house_stair"}:
+            return False
+    return bridge_clearance_is_open(blocks, cells)
+
+
+def draw_edge_wall_route(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    route: list[tuple[int, int, int]],
+    kind: str,
+) -> int:
+    added = 0
+    for x, y, z in world_route_cells(route):
+        if 0 <= x < zone.length and 0 <= y < zone.height and 0 <= z < zone.width:
+            blocks[(x, y, z)] = kind
+            added += 1
+    return added
+
+
+def add_close_cross_bridges(
+    blocks: dict[tuple[int, int, int], str],
+    zone: Zone,
+    rng: random.Random,
+    side_data: dict[str, tuple[WallSide, list[HouseVolume]]],
+) -> list[dict]:
+    candidates = []
+    for first_side, first_houses, second_side, second_houses in opposite_side_pairs(side_data):
+        for first_index, first in enumerate(first_houses):
+            for second_index, second in enumerate(second_houses):
+                overlap = opposite_house_overlap(first, second)
+                if overlap is None:
+                    continue
+                lateral = rng.randrange(overlap[0], overlap[1] + 1)
+                first_facade = house_facade_coord(zone, first_side, first)
+                second_facade = house_facade_coord(zone, second_side, second)
+                distance = abs(second_facade - first_facade) - 1
+                floor_pair = cross_bridge_floor_pair(first, second, distance, rng)
+                if floor_pair is None:
+                    continue
+                first_y, second_y = floor_pair
+                candidates.append(
+                    (
+                        rng.random(),
+                        distance,
+                        first_side,
+                        first_index,
+                        first,
+                        second_side,
+                        second_index,
+                        second,
+                        lateral,
+                        first_y,
+                        second_y,
+                    )
+                )
+
+    target = rng.randrange(HOUSE_CLOSE_CROSS_BRIDGE_MIN, HOUSE_CLOSE_CROSS_BRIDGE_MAX + 1)
+    connections = []
+    used_houses = set()
+    used_ranges: list[tuple[int, int]] = []
+
+    for _random_score, distance, first_side, first_index, first, second_side, second_index, second, lateral, first_y, second_y in sorted(candidates):
+        if len(connections) >= target:
+            break
+        first_key = (first_side.name, first_index)
+        second_key = (second_side.name, second_index)
+        if first_key in used_houses or second_key in used_houses:
+            continue
+
+        route = cross_bridge_route(zone, first_side, first, second_side, second, lateral, first_y, second_y)
+        if not route:
+            continue
+        if not cross_bridge_height_far_enough(route, used_ranges):
+            continue
+        if not world_route_can_fit(blocks, zone, route):
+            continue
+
+        added = draw_world_route(blocks, zone, route, "house_bridge")
+        if added == 0:
+            continue
+
+        open_cross_bridge_door(blocks, zone, first_side, first, lateral, first_y)
+        open_cross_bridge_door(blocks, zone, second_side, second, lateral, second_y)
+        used_houses.add(first_key)
+        used_houses.add(second_key)
+        used_ranges.append(cross_bridge_y_range(route))
+        connections.append(
+            {
+                "side": f"{first_side.name}-{second_side.name}",
+                "kind": "house_bridge",
+                "from": first_index,
+                "to": second_index,
+                "distance": distance,
+                "out": None,
+                "profile": "close",
+                "cross": True,
+                "blocks": added,
+                "route": [[x, y, z] for x, y, z in route],
             }
         )
 
@@ -687,7 +1471,8 @@ def generate_houses_on_side(
     side: WallSide,
     rng: random.Random,
     chain_start: int,
-) -> tuple[list[dict], list[dict], int]:
+    add_connections: bool = True,
+) -> tuple[list[dict], list[dict], int, list[HouseVolume]]:
     placed: list[HouseVolume] = []
     houses = []
     connections = []
@@ -698,8 +1483,9 @@ def generate_houses_on_side(
         for house in generate_house_chain(blocks, zone, side, rng, placed, chain_id):
             houses.append(house_to_payload(zone, side, house))
 
-    connections.extend(add_house_connections(blocks, zone, side, placed))
-    return houses, connections, chain_start + root_count
+    if add_connections:
+        connections.extend(add_house_connections(blocks, zone, side, placed))
+    return houses, connections, chain_start + root_count, placed
 
 
 def generate_house_zone(
@@ -714,14 +1500,27 @@ def generate_house_zone(
     houses = []
     connections = []
     chain = 1
+    side_data: dict[str, tuple[WallSide, list[HouseVolume]]] = {}
     for side in wall_sides_for_profile(zone, profile):
-        side_houses, side_connections, chain = generate_houses_on_side(blocks, zone, side, rng, chain)
+        side_houses, side_connections, chain, placed = generate_houses_on_side(
+            blocks, zone, side, rng, chain, add_connections=profile != "close"
+        )
+        side_data[side.name] = (side, placed)
         for house in side_houses:
             house["profile"] = profile
         for connection in side_connections:
             connection["profile"] = profile
         houses.extend(side_houses)
         connections.extend(side_connections)
+
+    if profile == "close":
+        connections.extend(add_close_corner_bridges(blocks, zone, rng, side_data))
+        connections.extend(add_close_wall_bridges(blocks, zone, rng, side_data))
+        for side, placed in side_data.values():
+            for connection in add_house_connections(blocks, zone, side, placed):
+                connection["profile"] = profile
+                connections.append(connection)
+        connections.extend(add_close_cross_bridges(blocks, zone, rng, side_data))
 
     return blocks, houses, connections
 

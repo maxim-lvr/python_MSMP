@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Building Long Test</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #15181c;
+        color: #e5ebf1;
+        font-family: Arial, sans-serif;
+      }
+
+      #hud,
+      #help {
+        position: fixed;
+        left: 12px;
+        z-index: 2;
+        padding: 10px 12px;
+        border: 1px solid rgba(210, 220, 230, 0.18);
+        background: rgba(12, 15, 18, 0.72);
+        color: #d7e0e8;
+        font-size: 13px;
+      }
+
+      #hud {
+        top: 12px;
+        min-width: 360px;
+      }
+
+      #stats {
+        display: block;
+        margin-top: 4px;
+        color: #aeb9c5;
+      }
+
+      #help {
+        bottom: 12px;
+        color: #b9c4cf;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <strong>Building Long Test</strong>
+      <span id="stats">Chargement...</span>
+    </div>
+    <div id="help">ZQSD bouger · Espace monter · Ctrl/C descendre · Shift rapide · clic souris pour regarder</div>
+    <script type="module" src="./building_long_viewer.js?v=building-long-compact-stair-hole-20260905"></script>
+  </body>
+</html>

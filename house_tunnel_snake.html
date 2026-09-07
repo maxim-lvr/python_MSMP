@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>House Tunnel Snake</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; font: 13px Arial, sans-serif; color: #26332e; background: #e6ece8; }
+    canvas { display: block; touch-action: none; }
+    #hud { position: absolute; z-index: 1; top: 10px; left: 10px; max-width: calc(100% - 20px); padding: 12px; background: #fffffff0; border: 1px solid #b9c7c0; }
+    header, form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    header { justify-content: space-between; }
+    h1 { font-size: 14px; margin: 0; }
+    a { color: #286249; }
+    #stats { margin: 9px 0; line-height: 1.5; }
+    input, button { font: inherit; min-height: 30px; border: 1px solid #acbdb3; background: #f4f8f5; padding: 4px 8px; border-radius: 3px; }
+    input { width: 95px; }
+    button { cursor: pointer; }
+    button:hover { background: #dfece4; }
+  </style>
+</head>
+<body data-zone="snake">
+  <section id="hud">
+    <header><h1>House Tunnel Snake</h1><a href="/">Menu</a></header>
+    <p id="stats" role="status">Chargement...</p>
+    <form id="settings">
+      <label for="seed">Seed</label><input id="seed" type="number" min="0" max="4294967295" step="1" value="42" required>
+      <button type="submit">Actualiser</button>
+      <button type="button" id="random">Al&eacute;atoire</button>
+      <button type="button" id="reset">Vue initiale</button>
+      <button type="button" id="overview">Vue d&apos;ensemble</button>
+    </form>
+  </section>
+  <script type="module" src="./house_tunnel_viewer.js"></script>
+</body>
+</html>
