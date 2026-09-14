@@ -1,5 +1,6 @@
 export const WORLD = { length: 5000, width: 5000, height: 300, chunk: 32 };
 export const MIN_GAP = 4;
+export const HOUSE_WALL_COUNT = 30;
 
 export function generateChunks(seed = 42) {
   let state = Number(seed) >>> 0;
@@ -30,4 +31,31 @@ export function generateChunks(seed = 42) {
     zones.push({ id: zones.length, x, z, width, depth, walls });
   }
   return { seed: Number(seed) >>> 0, world: WORLD, zones };
+}
+
+export function addExtraZones(layout) {
+  let state=(layout.seed^0x45585452)>>>0;
+  const integer=(a,b)=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return a+Math.floor(state/4294967296*(b-a+1));};
+  const {zones}=layout,limit=Math.floor(WORLD.length/WORLD.chunk);
+  const reserved=[...(layout.buildingLong||[]).map(z=>z.box),...(layout.wideAreas||[]).map(z=>z.box),
+    ...(layout.snakes||[]).flatMap(s=>s.volumes)];
+  for(const type of [...Array(2).fill('bridge_zone'),...Array(HOUSE_WALL_COUNT).fill('house_wall')]) {
+    let placed=false;
+    for(let attempt=0;attempt<12000;attempt++) {
+      const rotated=type==='bridge_zone'&&attempt%2===1;
+      const width=type==='house_wall'?2:rotated?10:32,depth=type==='house_wall'?2:rotated?32:10;
+      const margin=attempt<2000?128:attempt<6000?64:32;
+      const x=integer(2,limit-width-2),z=integer(2,limit-depth-2);
+      if(zones.some(o=>x<o.x+o.width+MIN_GAP&&x+width+MIN_GAP>o.x&&
+        z<o.z+o.depth+MIN_GAP&&z+depth+MIN_GAP>o.z))continue;
+      if(reserved.some(b=>x*32<b[0]+b[3]+margin&&(x+width)*32+margin>b[0]&&
+        z*32<b[2]+b[5]+margin&&(z+depth)*32+margin>b[2]))continue;
+      const s=WORLD.chunk,h=WORLD.height;
+      zones.push({id:zones.length,type,rotated,x,z,width,depth,walls:[
+        [x*s,0,z*s,width*s,h,0],[x*s,0,(z+depth)*s,width*s,h,0],
+        [x*s,0,z*s,0,h,depth*s],[(x+width)*s,0,z*s,0,h,depth*s],
+      ]});placed=true;break;
+    }
+    if(!placed)throw Error(`Placement impossible pour ${type}`);
+  }
 }

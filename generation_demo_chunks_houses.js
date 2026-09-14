@@ -2,9 +2,10 @@ import { WORLD } from './generation_demo_chunks_generator.js';
 import { mergeBoxes, subtract } from './generation_demo_generator.js';
 import { growDense } from './generation_demo_chunks_growth.js';
 import { localTunnelNetwork } from './generation_demo_chunks_network.js';
+import { snakeAccessPlans } from './generation_demo_chunks_snake_ports.js';
 
 export const DENSE_ROOM_COUNT = 54;
-export const DENSE_ROOMS_PER_SECTOR = 10;
+export const DENSE_ROOMS_PER_SECTOR = 11;
 export const NETWORK_FLOOR = 8;
 const S = WORLD.length, GRID = Math.floor(S / 32);
 const normals = { north: [0,-1], south: [0,1], west: [-1,0], east: [1,0] };
@@ -53,10 +54,19 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     mergeBoxes(t.runs.filter(r=>r.kind!=='rear_door').map(r=>[...r.pos,...r.size,r.kind]))]));
   for (const zone of layout.zones) {
     const boxes=[], localHouses=[];
+    if(zone.type==='bridge_zone') {
+      const index=layout.zones.filter(z=>z.type==='bridge_zone').indexOf(zone);
+      const model=templates.bridges[index];
+      wallGroups.push({zone:zone.id,walls:[],boxes:model.runs.map(r=>zone.rotated?[
+        zone.x*32+320-r.pos[2]-r.size[2],r.pos[1],zone.z*32+r.pos[0],
+        r.size[2],r.size[1],r.size[0],`zone_${r.kind}`]:[
+        r.pos[0]+zone.x*32,r.pos[1],r.pos[2]+zone.z*32,...r.size,`zone_${r.kind}`])});
+      continue;
+    }
     for (const side of Object.keys(normals)) {
       const length = (side==='north'||side==='south' ? zone.width : zone.depth)*32;
-      let offset=16;
-      for (const size of stripsFor(length-32)) {
+      let offset=length===64?0:16;
+      for (const size of stripsFor(length-offset*2)) {
         const strip=templates.strips[size];
         for (const box of prepared[size]) boxes.push(transform(box,side,zone,offset));
         for (const h of strip.houses) {
@@ -141,6 +151,19 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     access(port.door,port.side,shaft,port.house);
     const [nx,nz]=normals[port.side];
     line([x,z],[x-nx,z-nz],y-1,port.house);
+  }
+  const snakeEntries=new Set();
+  if(layout.snakes?.length||layout.buildingLong?.length)for(const plan of snakeAccessPlans(layout,houses,shafts.values(),routes)) {
+    const [x,y,z]=plan.door,[nx,,nz]=plan.normal;
+    const shaft=shaftFor(plan.x,plan.z,y-1);
+    const side=nx<0?'west':nx>0?'east':nz<0?'north':'south';
+    const port={id:ports.length,snake:plan.snake,buildingLong:plan.buildingLong,bridgePort:plan.bridgePort,
+      trail:plan.trail,end:plan.end,room:plan.room,side,door:plan.door,shaft:shaft.id,access:plan.points};
+    ports.push(port);shaft.ports.push(port.id);
+    polyline(plan.points,y-1);
+    // Existing room floors and walls close the neck; do not rebuild them inside the room.
+    for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)if(dx*nx+dz*nz<=(plan.buildingLong===undefined?0:-1))
+      for(let dy=-1;dy<=2;dy++)snakeEntries.add(key(x+dx,y+dy,z+dz));
   }
 
   const blocked=new Uint8Array(GRID*GRID);
@@ -238,8 +261,41 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
   const tree=new Set([terminals[0]]),edges=[];
   const heights=new Int16Array(graphBlocked.length).fill(NETWORK_FLOOR);
   if(density!==null) {
-    heights[terminals[0]]=96;
-    for(let i=1;i<tail;i++)heights[queue[i]]=Math.max(16,Math.min(260,heights[parent[queue[i]]]+integer(-4,4)));
+    // Persistent climbs/descents explore the volume instead of drifting around one floor.
+    const directions=new Int8Array(graphBlocked.length);
+    heights[terminals[0]]=integer(12,280);
+    directions[terminals[0]]=integer(0,1)?1:-1;
+    for(let i=1;i<tail;i++) {
+      const node=queue[i],previous=parent[node];
+      let direction=directions[previous];
+      if(integer(0,39)===0)direction=-direction;
+      const step=integer(3,6);
+      let y=heights[previous]+direction*step;
+      if(y<8||y>284){direction=-direction;y=heights[previous]+direction*step;}
+      heights[node]=y;directions[node]=direction;
+    }
+    if(layout.snakes?.length||layout.buildingLong?.length||layout.wideAreas?.length||layout.globalPipe) {
+      // Approach snakes gradually from below, rather than treating them as full-height walls.
+      const caps=new Int16Array(g*g).fill(284),levels=Array.from({length:285},()=>[]);
+      const overhead=[...(layout.snakes||[]).flatMap(s=>s.volumes),...(layout.buildingLong||[]).map(z=>z.box),
+        ...(layout.wideAreas||[]).map(z=>z.box),...(layout.globalPipe?.volumes||[])];
+      for(const port of ports)if(port.snake!==undefined||port.buildingLong!==undefined)for(let i=1;i<port.access.length;i++) {
+        const a=port.access[i-1],b=port.access[i];
+        overhead.push([Math.min(a[0],b[0])-1,port.door[1]-1,Math.min(a[1],b[1])-1,
+          Math.abs(a[0]-b[0])+3,4,Math.abs(a[1]-b[1])+3]);
+      }
+      for(const [x,y,z,sx,,sz] of overhead)
+        for(let gz=Math.max(0,Math.floor((z-32)/16));gz<=Math.min(g-1,Math.ceil((z+sz+32)/16));gz++)
+          for(let gx=Math.max(0,Math.floor((x-32)/16));gx<=Math.min(g-1,Math.ceil((x+sx+32)/16));gx++) {
+            const node=gz*g+gx,cap=y-6;
+            if(cap<caps[node]){caps[node]=cap;levels[cap].push(node);}
+          }
+      for(let cap=0;cap<282;cap++)for(const node of levels[cap]) {
+        if(caps[node]!==cap)continue;
+        for(const next of neighbours(node))if(caps[next]>cap+3){caps[next]=cap+3;levels[cap+3].push(next);}
+      }
+      for(const node of localNetwork.order)heights[node]=Math.min(heights[node],caps[node]);
+    }
   }
   const points=new Map();
   const point=id=>{
@@ -322,7 +378,7 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     const [x,y,z]=xyz(k);
     for(const [dx,dy,dz] of offsets) {
       const nx=x+dx,ny=y+dy,nz=z+dz,nk=key(nx,ny,nz);
-      if(!air.has(nk) && !solid.has(nk) && ((diagnostics&&density===null)||!atDense(nx,ny,nz)) && !atHouse(nx,ny,nz))solid.set(nk,brickShell.has(nk)?'dense':'tunnel');
+      if(!air.has(nk) && !solid.has(nk) && !snakeEntries.has(nk) && ((diagnostics&&density===null)||!atDense(nx,ny,nz)) && !atHouse(nx,ny,nz))solid.set(nk,brickShell.has(nk)?'dense':'tunnel');
     }
   }
   for(const k of brickShell)if(!air.has(k))solid.set(k,'dense');
@@ -331,11 +387,12 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     if(air.has(key(shaft.x,y,shaft.z+1)))throw Error('Missing ladder backing');
   }
   const networkBoxes=pack(solid,k=>solid.get(k)).concat(denseBoxes);
+  const buildingConnections=ports.filter(p=>p.buildingLong!==undefined).length;
   const result={...layout,houses,ports,wallGroups,denseRooms,shafts:[...shafts.values()],
     networkBoxes,ladderBoxes:[...ladders.values()],routes,edges,growthConnections,
     stone:{block:'minecraft:stone',implicit:true},density,
-    stats:{wallHouses:houses.length,denseRooms:denseRooms.length,orangeDoors:ports.length,
-      connectedDense:denseRooms.length,connectedDoors:ports.length,components:1,excavatedCells:air.size}};
+    stats:{wallHouses:houses.length,denseRooms:denseRooms.length,orangeDoors:ports.length-buildingConnections,
+      connectedDense:denseRooms.length,connectedDoors:ports.length-buildingConnections,buildingConnections,components:1,excavatedCells:air.size}};
   if(diagnostics)Object.assign(result,{air,solid});
   return result;
 }

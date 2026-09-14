@@ -30,6 +30,8 @@ const materials = {
   window: new THREE.MeshBasicMaterial({ color: 0x36564b }),
   lit: new THREE.MeshBasicMaterial({ color: 0xeee2ad }),
   bridge: new THREE.MeshLambertMaterial({ color: 0x637fb0 }),
+  partition: new THREE.MeshLambertMaterial({ color: 0x9aa99e }),
+  orange: new THREE.MeshBasicMaterial({color:0xff8800,toneMapped:false}),
 };
 let model = new THREE.Group();
 scene.add(model);
@@ -87,7 +89,7 @@ function generate(seed) {
 
 function rebuild() {
   const seed = Number(document.querySelector('#seed').value) >>> 0;
-  currentLayout = snake ? snakeGenerator.generateSnake(seed) : generate(seed);
+  currentLayout = snake ? snakeGenerator.generateSnake(seed,undefined,null,true) : generate(seed);
   const { boxes, depths } = currentLayout;
   scene.remove(model);
   for (const mesh of model.children) mesh.dispose();
@@ -111,7 +113,7 @@ function rebuild() {
   const passages = depths[0].map((depth, i) => GAP - depth - depths[1][i]);
   document.querySelector('#stats').textContent = `${LENGTH} de long / ${GAP} entre parois / ${HEIGHT} de haut. 10 etages par cote. Passage : ${Math.min(...passages)} a ${Math.max(...passages)} blocs.`;
   if (snake) {
-    document.querySelector('#stats').textContent = `1500 blocs / ${currentLayout.route.lengths.length} troncons / 30 de large / 41 de haut / ${currentLayout.bridges.length} ponts`;
+    document.querySelector('#stats').textContent = `1500 blocs / ${currentLayout.rooms.length} pieces / ${currentLayout.rearDoors.length} portes orange / ${currentLayout.bridges.length} ponts`;
     resetView();
   }
 }

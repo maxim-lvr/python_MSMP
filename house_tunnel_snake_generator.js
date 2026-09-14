@@ -1,3 +1,6 @@
+import { snakeRoomStations, partitionSnakeRooms } from './house_tunnel_snake_rooms.js';
+import { subtract } from './generation_demo_generator.js';
+
 export const TOTAL_LENGTH = 1500;
 export const MIN_SEGMENT = 70;
 export const MAX_SEGMENT = 150;
@@ -72,9 +75,9 @@ function ribbon(points, left, right) {
   return [...points.map((p, i) => offset(p, i, left)), ...points.map((p, i) => offset(p, i, -right)).reverse()];
 }
 
-export function generateSnake(seed, bridgeCount = BRIDGE_COUNT) {
+export function generateSnake(seed, bridgeCount = BRIDGE_COUNT, suppliedRoute = null, closeRooms = false) {
   if (!Number.isInteger(bridgeCount) || bridgeCount < 0 || bridgeCount > 100) throw new Error('Nombre de ponts : 0 a 100');
-  const route = generateRoute(seed);
+  const route = suppliedRoute || generateRoute(seed);
   const random = makeRandom((seed >>> 0) ^ 0xa32f81);
   const polygon = ribbon(route.points, 16, 16);
   const minX = Math.min(...polygon.map(p => p.x)) - 1;
@@ -104,6 +107,7 @@ export function generateSnake(seed, bridgeCount = BRIDGE_COUNT) {
   const interior = mask(15, 15);
   const cells = [];
   for (let i = 0; i < footprint.length; i++) if (footprint[i]) cells.push(i);
+  const roomRandom=makeRandom((seed>>>0)^0x524f4f4d),rooms=[],rearDoors=[];
   const depths = Array.from({ length: 2 }, () => Array.from({ length: LEVELS }, () => 8 + Math.floor(random() * 5)));
   const passages = Array.from({ length: LEVELS }, (_, level) => mask(15 - depths[0][level], 15 - depths[1][level]));
   const bridges = [];
@@ -144,6 +148,7 @@ export function generateSnake(seed, bridgeCount = BRIDGE_COUNT) {
     bridges.push({ ...candidate, level, positions });
   }
   const boxes = Object.fromEntries(['wall', 'floor', 'facade', 'alternate', 'window', 'lit', 'bridge'].map(k => [k, []]));
+  if(closeRooms){boxes.partition=[];boxes.orange=[];}
   function emit(kind, y, sy, predicate) {
     let start = -1;
     let previous = -2;
@@ -199,6 +204,15 @@ export function generateSnake(seed, bridgeCount = BRIDGE_COUNT) {
       const phase = ((along % 6) + 6) % 6;
       if (phase === 2 || phase === 3) windows[i] = random() < 0.2 ? 2 : 1;
     }
+    if(closeRooms) {
+      const roomStations=snakeRoomStations(route,cells,coords,[depths[0][level],depths[1][level]]);
+      const partition=partitionSnakeRooms({level,...roomStations,cells,interior,passage,facade,coords,width,
+        random:roomRandom,bridgeDoors:doors[level]});
+      for(const room of partition.rooms)rooms.push({...room,id:rooms.length});
+      rearDoors.push(...partition.rearDoors);
+      doors[level]=partition.doors;
+      emit('partition',level*4+1,3,i=>partition.walls.has(i));
+    }
     if (level > 0) {
       const openSlab = mask(15 - Math.max(depths[0][level], depths[0][level - 1]), 15 - Math.max(depths[1][level], depths[1][level - 1]));
       emit('floor', level * 4, 1, i => interior[i] && !openSlab[i]);
@@ -212,5 +226,10 @@ export function generateSnake(seed, bridgeCount = BRIDGE_COUNT) {
       emit('lit', level * 4 + dy, 1, i => visible(i) && windows[i] === 2);
     }
   }
-  return { boxes, route, bridges, depths, bounds: { minX, minZ, width, depth } };
+  for(const door of rearDoors) {
+    const hole=[...door.pos,1,2,1];
+    boxes.wall=boxes.wall.flatMap(b=>subtract(b,hole));
+    boxes.orange.push(hole);
+  }
+  return { boxes, route, bridges, depths, rooms, rearDoors, bounds: { minX, minZ, width, depth } };
 }

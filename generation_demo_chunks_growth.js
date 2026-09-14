@@ -19,6 +19,10 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
     return true;
   };
   houses.forEach(h=>insert({box:h.box}));
+  for(const zone of layout.buildingLong||[])insert({box:zone.box});
+  for(const zone of layout.wideAreas||[])insert({box:zone.box});
+  for(const box of layout.globalPipe?.volumes||[])insert({box});
+  for(const snake of layout.snakes||[])for(const box of snake.volumes)insert({box});
   // Cavities span the entire height. Their boundaries can never be crossed by growth.
   const cavities=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]);
   const outside=b=>!cavities.some(c=>overlap(b,c));
@@ -35,15 +39,16 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
   if(!anchors.length)throw Error('No tunnel anchors for dense growth');
   const sides=['west','east','north','south'],opposite=[1,0,3,2];
   let goal=[2500,150,2500];
-  const sectors=new Map();
-  const sector=b=>`${Math.floor(b[0]/128)},${Math.floor(b[2]/128)}`;
+  const sectors=new Map(),columns=new Map(),heightCounts=Array(6).fill(0);
+  const column=b=>`${Math.floor(b[0]/128)},${Math.floor(b[2]/128)}`;
+  const sector=b=>`${Math.floor(b[0]/128)},${Math.floor(b[1]/50)},${Math.floor(b[2]/128)}`;
   for(let attempt=0;attempt<target*100 && rooms.length<target;attempt++) {
     if(attempt%32===0) {
       let best=Infinity;
       for(let n=0;n<12;n++) {
         const p=[integer(24,4976),integer(12,280),integer(24,4976)];
         if(!outside([...p,1,1,1]))continue;
-        const score=sectors.get(sector(p))||0;
+        const score=heightCounts[Math.floor(p[1]/50)]+(sectors.get(sector(p))||0)*6+(columns.get(column(p))||0)*12;
         if(score<best){goal=p;best=score;}
       }
     }
@@ -52,7 +57,7 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
       const pool=rooms.length && integer(0,9)>1?rooms:anchors;
       const p=pool[integer(0,pool.length-1)];
       if(Object.keys(p.openings).length>=3)continue;
-      const b=p.box,dist=Math.abs(b[0]-goal[0])+Math.abs(b[2]-goal[2])+Math.abs(b[1]-goal[1])*2;
+      const b=p.box,dist=Math.abs(b[0]-goal[0])+Math.abs(b[2]-goal[2])+Math.abs(b[1]-goal[1])*12;
       if(dist<score){parent=p;score=dist;}
     }
     if(!parent)continue;
@@ -62,7 +67,8 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
     const axis=side<2?0:2,along=axis===0?2:0,sign=side%2===0?-1:1;
     if(parent.openings[sides[side]] || (parent.id===null && axis!==parent.axis))continue;
     const size=[integer(sizes[0],sizes[1]),integer(sizes[2],sizes[3]),integer(sizes[0],sizes[1])];
-    const dy=integer(-7,7),floor=p[1]+dy;
+    const toward=Math.sign(goal[1]-p[1]);
+    const dy=integer(0,3)?toward*integer(1,7):integer(-7,7),floor=p[1]+dy;
     const gap=integer(Math.max(7,Math.abs(dy)+5),integer(0,19)===0?48:26);
     const start=[p[0],p[1],p[2]];
     start[axis]=p[axis]+(sign>0?p[axis+3]-1:0);
@@ -92,6 +98,8 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
     const connection={from:parent.id,to:room.id,kind:dy?'stair':'tunnel',path};
     connections.push(connection);rooms.push(room);insert(room);
     sectors.set(sector(b),(sectors.get(sector(b))||0)+1);
+    columns.set(column(b),(columns.get(column(b))||0)+1);
+    heightCounts[Math.floor(b[1]/50)]++;
     for(let i=0;i<path.length;i++) {
       const [x,y,z]=path[i],clearance=i+1<path.length&&path[i+1][1]>y?3:2;
       for(let h=1;h<=clearance;h++)addAir(x,y+h,z);

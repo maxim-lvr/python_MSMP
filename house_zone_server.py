@@ -16,7 +16,7 @@ from map_builde_dense_1 import (
     build_dense_payload,
 )
 from map_builder_house import DEFAULT_OUT as HOUSE_DEFAULT_OUT, build_payload as build_house_payload
-from generation_demo_chunks_templates import wall_templates
+from generation_demo_chunks_templates import wall_templates, building_long_template
 
 
 DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
@@ -25,6 +25,18 @@ DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
 class HouseZoneHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/demo-building-long":
+            try:
+                params = parse_qs(parsed.query)
+                seed = int(params.get("seed", ["42"])[0])
+                length = int(params.get("length", ["960"])[0])
+                if not 0 <= seed <= 0xFFFFFFFF or length not in (800, 960, 1120, 1280):
+                    raise ValueError("settings")
+            except ValueError:
+                self.send_error(400, "Invalid Building Long settings")
+                return
+            self.send_json(building_long_template(seed, length))
+            return
         if parsed.path == "/api/demo-chunks-templates":
             try:
                 seed = int(parse_qs(parsed.query).get("seed", ["42"])[0])

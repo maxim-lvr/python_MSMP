@@ -354,7 +354,7 @@ def register_trail(candidate: list[tuple[int, int, int]], heights_by_xz: dict[tu
         heights_by_xz.setdefault((x, z), []).append(y)
 
 
-def generate_red_trails(column_centers: list[dict], rng: JsRng, zone: Zone, count: int) -> tuple[list[tuple[int, int, int]], int]:
+def generate_red_trails(column_centers: list[dict], rng: JsRng, zone: Zone, count: int, ports: list[dict] | None = None) -> tuple[list[tuple[int, int, int]], int]:
     trails: list[tuple[int, int, int]] = []
     heights_by_xz: dict[tuple[int, int], list[int]] = {}
     accepted = 0
@@ -368,6 +368,12 @@ def generate_red_trails(column_centers: list[dict], rng: JsRng, zone: Zone, coun
                 break
         if candidate is None:
             continue
+        if ports is not None:
+            for side, edge in (("start", 0), ("end", zone.length - 1)):
+                ends = [cell for cell in raw if cell[0] == edge]
+                if ends:
+                    pos = ends[0] if raw[0][0] == edge else ends[-1]
+                    ports.append({"trail": accepted, "side": side, "pos": list(pos)})
         register_trail(candidate, heights_by_xz)
         trails.extend(candidate)
         accepted += 1
@@ -420,7 +426,7 @@ def cells_to_runs(cells: list[tuple[int, int, int]], kind: str) -> list[dict]:
     return runs
 
 
-def build_payload(seed: int, zone: Zone, trail_count: int) -> dict:
+def build_payload(seed: int, zone: Zone, trail_count: int, *, include_ports: bool = False) -> dict:
     rng = JsRng(seed)
     boxes: list[tuple[int, int, int, int, int, int, str]] = []
     building_count = 0
@@ -448,10 +454,12 @@ def build_payload(seed: int, zone: Zone, trail_count: int) -> dict:
             if clipped_box(zone, x, 0, z, width, zone.height, width):
                 column_centers.append({"x": x, "z": z, "width": width})
 
-    trails, accepted_trails = generate_red_trails(column_centers, rng, zone, trail_count)
+    trail_ports: list[dict] = []
+    trails, accepted_trails = generate_red_trails(column_centers, rng, zone, trail_count, trail_ports if include_ports else None)
     runs = boxes_to_runs(boxes) + cells_to_runs(trails, "trail")
     blocks = sum(run_volume(run) for run in runs)
     return {
+        **({"trail_ports": trail_ports} if include_ports else {}),
         "version": 1,
         "type": "building_long_minecraft_export",
         "units": "blocks",
