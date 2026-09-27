@@ -1,6 +1,6 @@
 // Same parent/child growth principle as map_builde_dense_1.horizontal_child.
 // The spatial index is only a collision accelerator, never a placement grid.
-export function growDense({layout,houses,shafts,routes,target,integer,addAir,sizes}) {
+export function growDense({layout,houses,shafts,routes,galleries,target,integer,addAir,sizes}) {
   const buckets=new Map(), rooms=[], connections=[], anchors=[];
   const overlap=(a,b)=>[0,1,2].every(i=>a[i]<b[i]+b[i+3]&&a[i]+a[i+3]>b[i]);
   const keys=function*(b){
@@ -27,8 +27,17 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
   const cavities=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]);
   const outside=b=>!cavities.some(c=>overlap(b,c));
   for(const shaft of shafts)insert({box:[shaft.x-1,shaft.bottom,shaft.z-1,3,shaft.top-shaft.bottom+4,3]});
+  const galleryItems=(galleries?.outer||[]).map(box=>({box}));
+  for(const item of galleryItems) {
+    insert(item);
+    const b=item.box,axis=b[3]>=b[5]?2:0;
+    if(Math.max(b[3],b[5])<11)continue;
+    anchors.push({box:[Math.floor(b[0]+b[3]/2)-2,b[1],Math.floor(b[2]+b[5]/2)-2,5,1,5],
+      obstacle:item,axis,openings:{},id:null,gallery:true});
+  }
   for(const route of routes) {
     const a=route.a,b=route.b;
+    if(galleries?.contains(a[0],a[1]+1,a[2])&&galleries.contains(b[0],b[1]+1,b[2]))continue;
     const item={box:[Math.min(a[0],b[0])-1,a[1],Math.min(a[2],b[2])-1,
       Math.abs(a[0]-b[0])+3,5,Math.abs(a[2]-b[2])+3]};
     insert(item);
@@ -83,6 +92,11 @@ export function growDense({layout,houses,shafts,routes,target,integer,addAir,siz
     const length=Math.abs(end[axis]-start[axis]), path=[],volumes=[];
     let valid=true;
     const allowed=[parent.obstacle||parent];
+    if(parent.gallery) {
+      const neck=[start[0]-1,start[1],start[2]-1,3,5,3];
+      for(const k of keys(neck))for(const item of buckets.get(k)||[])
+        if(item!==parent.obstacle&&galleryItems.includes(item)&&overlap(neck,item.box)&&!allowed.includes(item))allowed.push(item);
+    }
     for(let i=0;i<=length;i++) {
       const y=p[1]+Math.round(dy*Math.max(0,Math.min(1,(i-2)/(length-4))));
       const point=[start[0],y,start[2]];point[axis]+=sign*i;

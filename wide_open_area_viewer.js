@@ -1,6 +1,12 @@
 import * as THREE from './web/vendor/three.module.js';
 import {OrbitControls} from './web/vendor/OrbitControls.js';
-import {generateWideOpenArea,AREA} from './wide_open_area.js';
+import {generateWideOpenArea,AREA as WIDE_AREA} from './wide_open_area.js';
+import {generateWaterRoomZone,WATER_ROOM_AREA} from './water_room_zone.js';
+import {generateVillagerCity,VILLAGER_CITY_AREA} from './villager_city.js';
+
+const waterRoom=document.body.dataset.zone==='water_room';
+const villagerCity=document.body.dataset.zone==='villager_city';
+const AREA=villagerCity?VILLAGER_CITY_AREA:waterRoom?WATER_ROOM_AREA:WIDE_AREA;
 
 const $=id=>document.getElementById(id),scene=new THREE.Scene();
 scene.background=new THREE.Color(0xcbd4d1);scene.fog=new THREE.Fog(0xcbd4d1,260,1150);
@@ -17,6 +23,12 @@ for(const [kind,color] of Object.entries({tower:0x4e5656,trim:0x69716f,house:0x9
   pipe:0x986d4f,pipe_band:0x49484a,industrial:0x85877f,suspended:0x777c89,detail_trim:0x575858,detail_pillar:0x5f6668}))
   materials[kind]=new THREE.MeshLambertMaterial({color});
 materials.light=new THREE.MeshBasicMaterial({color:0xffd59a});
+if(waterRoom) {
+  materials.tower=new THREE.MeshLambertMaterial({color:0x89959b});
+  materials.ceiling=new THREE.MeshLambertMaterial({color:0x9aa4a9});
+  materials.water=new THREE.MeshPhongMaterial({color:0x2998b3,transparent:true,opacity:0.76,shininess:90,depthWrite:false});
+  scene.fog=new THREE.Fog(0xcbd4d1,100,330);
+}
 let model,layout,mode='fly';
 const keys=new Set(),forward=new THREE.Vector3(),right=new THREE.Vector3(),movement=new THREE.Vector3();
 function switchMode(next) {
@@ -24,12 +36,15 @@ function switchMode(next) {
   $('fly').setAttribute('aria-pressed',String(mode==='fly'));$('overview').setAttribute('aria-pressed',String(mode==='overview'));
   if(document.pointerLockElement===renderer.domElement)document.exitPointerLock();
   if(mode==='overview') {
-    camera.position.set(AREA.length*1.15,AREA.height*2.3,AREA.width*1.3);orbit.target.set(AREA.length/2,90,AREA.width/2);orbit.update();
+    camera.position.set(AREA.length*1.15,waterRoom?180:AREA.height*2.3,AREA.width*1.3);orbit.target.set(AREA.length/2,villagerCity?48:waterRoom?10:90,AREA.width/2);orbit.update();
   } else {camera.position.fromArray(layout.spawn);camera.lookAt(...layout.lookAt);}
+  if(waterRoom){$('ceiling').checked=mode==='fly';updateCeiling();}
 }
+function updateCeiling(){model?.traverse(mesh=>{if(mesh.userData.kind==='ceiling')mesh.visible=$('ceiling').checked;});}
+if(waterRoom)$('ceiling').onchange=updateCeiling;
 function rebuild() {
   try {
-    const data=generateWideOpenArea(Number($('seed').value));
+    const data=(villagerCity?generateVillagerCity:waterRoom?generateWaterRoomZone:generateWideOpenArea)(Number($('seed').value));
     if(model){scene.remove(model);model.traverse(mesh=>{if(mesh.isInstancedMesh)mesh.dispose();});}
     layout=data;model=new THREE.Group();scene.add(model);
     const buckets=new Map();
@@ -40,6 +55,7 @@ function rebuild() {
     const matrix=new THREE.Matrix4(),position=new THREE.Vector3(),scale=new THREE.Vector3(),rotation=new THREE.Quaternion();
     for(const boxes of buckets.values()) {
       const mesh=new THREE.InstancedMesh(geometry,materials[boxes[0][6]],boxes.length);
+      mesh.userData.kind=boxes[0][6];
       boxes.forEach(([x,y,z,sx,sy,sz],i)=> {
         position.set(x+sx/2,y+sy/2,z+sz/2);scale.set(sx,sy,sz);matrix.compose(position,rotation,scale);mesh.setMatrixAt(i,matrix);
       });
@@ -47,6 +63,8 @@ function rebuild() {
     }
     const s=data.stats;
     $('stats').textContent=`720 x 560 x 260 · ${s.houses} maisons · ${s.bridges} ponts · ${s.groundBuildings+s.suspendedBuildings} batiments · ${s.decorativePillars} piliers · ${s.pipe} tuyau`;
+    if(waterRoom)$('stats').textContent=`200 x 200 x 20 · ${s.towers} tours · Eau : 1 bloc`;
+    if(villagerCity)$('stats').textContent=`200 x 80 x 100 · ${s.houses} maisons · ${s.bridges} ponts`;
     document.body.dataset.ready='true';switchMode(mode);
   } catch(error){$('stats').textContent=error.message;document.body.dataset.ready='error';console.error(error);}
 }

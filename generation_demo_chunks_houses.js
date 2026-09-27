@@ -3,6 +3,7 @@ import { mergeBoxes, subtract } from './generation_demo_generator.js';
 import { growDense } from './generation_demo_chunks_growth.js';
 import { localTunnelNetwork } from './generation_demo_chunks_network.js';
 import { snakeAccessPlans } from './generation_demo_chunks_snake_ports.js';
+import {prepareGalleries,galleryMeshes,MAIN_TUNNEL_MIN_LENGTH} from './generation_demo_chunks_galleries.js';
 
 export const DENSE_ROOM_COUNT = 54;
 export const DENSE_ROOMS_PER_SECTOR = 11;
@@ -120,7 +121,12 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     }
     routes.push({a:[a[0],floor,a[1]],b:[b[0],floor,b[1]]});
   };
-  const polyline=(points,floor,owner)=>{for(let i=1;i<points.length;i++)line(points[i-1],points[i],floor,owner);};
+  const polyline=(points,floor,owner,main=false)=>{
+    const start=routes.length;
+    for(let i=1;i<points.length;i++)line(points[i-1],points[i],floor,owner);
+    const length=points.slice(1).reduce((n,p,i)=>n+Math.abs(p[0]-points[i][0])+Math.abs(p[1]-points[i][1]),0);
+    if(main||length>MAIN_TUNNEL_MIN_LENGTH)for(let i=start;i<routes.length;i++)routes[i].main=true;
+  };
   const shaftFor=(x,z,top)=>{
     const id=cell(x,z);
     const shaft=shafts.get(id)||{id,x,z,top:NETWORK_FLOOR,bottom:top,ports:[]};
@@ -160,7 +166,7 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     const port={id:ports.length,snake:plan.snake,buildingLong:plan.buildingLong,bridgePort:plan.bridgePort,
       trail:plan.trail,end:plan.end,room:plan.room,side,door:plan.door,shaft:shaft.id,access:plan.points};
     ports.push(port);shaft.ports.push(port.id);
-    polyline(plan.points,y-1);
+    polyline(plan.points,y-1,undefined,true);
     // Existing room floors and walls close the neck; do not rebuild them inside the room.
     for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)if(dx*nx+dz*nz<=(plan.buildingLong===undefined?0:-1))
       for(let dy=-1;dy<=2;dy++)snakeEntries.add(key(x+dx,y+dy,z+dz));
@@ -301,7 +307,8 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
   const point=id=>{
     if(!points.has(id)) {
       const [x,z]=graphCenter(id);
-      points.set(id,density===null?[x,z]:[x+integer(-3,3),z+integer(-3,3)]);
+      // Grid neighbours share an axis; jitter creates useless one-block doglegs.
+      points.set(id,[x,z]);
     }
     return points.get(id);
   };
@@ -320,12 +327,15 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
       for(let h=1;h<=3;h++)addAir(x,y+h,z);
       const p=[x,y,z];
       if(run&&run.a[1]===y&&(run.a[0]===x||run.a[2]===z))run.b=p;
-      else {run={a:p,b:p};routes.push(run);}
+      else {
+        const neighbor=path[i+1]||path[i-1]||path[i];
+        run={a:p,b:p,axis:neighbor[0]!==x?0:2};routes.push(run);
+      }
     }
   };
   for(const terminal of terminals) {
     if(!visited[terminal])throw Error('Underground network is disconnected');
-    let id=terminal;
+    let id=terminal,start=routes.length;
     while(!tree.has(id)) {
       const next=parent[id];
       edges.push([id,next]);
@@ -333,6 +343,8 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
       else stairs(point(id),point(next),heights[id],heights[next]);
       tree.add(id);id=next;
     }
+    // Every edge belongs to the same main network, even a short edge joining two branches.
+    for(let i=start;i<routes.length;i++)routes[i].main=true;
   }
 
   for(const shaft of shafts.values()) {
@@ -341,7 +353,7 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     const c=graphCenter(shaft.terminal);
     const landing=c[1]>shaft.z&&c[0]===shaft.x?
       [[shaft.x+4,c[1]],[shaft.x+4,shaft.z-3],[shaft.x,shaft.z-3]]:[];
-    polyline([p,[c[0],p[1]],c,...landing,[shaft.x,shaft.z]],floor);
+    polyline([p,[c[0],p[1]],c,...landing,[shaft.x,shaft.z]],floor,undefined,true);
     shaft.bottom=density===null?NETWORK_FLOOR:Math.min(shaft.bottom,floor);
     shaft.top=Math.max(shaft.top,floor);
     for(let y=shaft.bottom+1;y<=shaft.top+2;y++) {
@@ -351,8 +363,9 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
     ladders.set(shaft.id,[shaft.x,shaft.bottom+1,shaft.z,1,shaft.top-shaft.bottom,1,'ladder']);
   }
   let growthConnections=[];
+  const galleries=prepareGalleries(layout,houses,[...shafts.values()],routes);
   if(density!==null) {
-    const growth=growDense({layout,houses,shafts:[...shafts.values()],routes,target:count,integer,addAir,sizes:templates.denseSize});
+    const growth=growDense({layout,houses,shafts:[...shafts.values()],routes,galleries,target:count,integer,addAir,sizes:templates.denseSize});
     denseRooms.push(...growth.rooms);growthConnections=growth.connections;
     for(const room of denseRooms) {
       const [x,y,z,sx,sy,sz]=room.box;
@@ -386,10 +399,20 @@ export function populateChunks(layout, templates, count = DENSE_ROOM_COUNT, diag
   for(const shaft of shafts.values())for(let y=shaft.bottom+1;y<=shaft.top;y++) {
     if(air.has(key(shaft.x,y,shaft.z+1)))throw Error('Missing ladder backing');
   }
-  const networkBoxes=pack(solid,k=>solid.get(k)).concat(denseBoxes);
+  for(const k of solid.keys()) {
+    const [x,y,z]=xyz(k);
+    if(galleries.contains(x,y,z))solid.delete(k);
+  }
+  // Replace the enclosed 3x3 shafts with a single backing column and exposed ladders.
+  for(const s of shafts.values())for(let y=s.bottom+1;y<=s.top+2;y++)
+    for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)solid.delete(key(s.x+dx,y,s.z+dz));
+  for(const s of shafts.values())for(let y=s.bottom;y<=s.top+2;y++)solid.delete(key(s.x,y,s.z+1));
+  const mainBoxes=galleryMeshes(galleries,routes,growthConnections);
+  const networkBoxes=pack(solid,k=>solid.get(k)).concat(denseBoxes,mainBoxes);
   const buildingConnections=ports.filter(p=>p.buildingLong!==undefined).length;
   const result={...layout,houses,ports,wallGroups,denseRooms,shafts:[...shafts.values()],
     networkBoxes,ladderBoxes:[...ladders.values()],routes,edges,growthConnections,
+    mainGalleries:{interiors:galleries.inner,sections:galleries.outer.length},
     stone:{block:'minecraft:stone',implicit:true},density,
     stats:{wallHouses:houses.length,denseRooms:denseRooms.length,orangeDoors:ports.length-buildingConnections,
       connectedDense:denseRooms.length,connectedDoors:ports.length-buildingConnections,buildingConnections,components:1,excavatedCells:air.size}};

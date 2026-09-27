@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Villager City</title>
+  <script type="importmap">{"imports":{"three":"./web/vendor/three.module.js"}}</script>
+  <style>
+    *{box-sizing:border-box;letter-spacing:0}body{margin:0;font:13px Arial,sans-serif;color:#253536;background:#d4dcda;overflow:hidden}
+    canvas{display:block;touch-action:none}#panel{position:fixed;top:10px;left:10px;max-width:calc(100% - 20px);background:#f8faf9f2;border:1px solid #c5cecc;padding:10px 12px;z-index:2}
+    header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:7px}h1{font-size:16px;margin:0}a{color:#356b68}#stats{line-height:1.5;margin:0 0 8px}.controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    button,input{font:inherit;border:1px solid #b7c3c0;background:white;color:inherit;min-height:32px;border-radius:3px;padding:5px 8px}button{cursor:pointer}button[aria-pressed="true"]{background:#356b68;color:white}input{width:112px}label{display:flex;align-items:center;gap:5px}#speed{width:75px}#ceiling{width:16px;min-height:16px}
+    #position{position:fixed;right:12px;bottom:12px;padding:6px 9px;background:#f8faf9da;pointer-events:none}#mobile{display:none;position:fixed;bottom:18px;left:12px;gap:6px;z-index:2}#mobile button{width:40px;height:40px;touch-action:none}
+    @media(pointer:coarse){#mobile{display:flex}#position{bottom:72px}}@media(max-width:540px){#panel{padding:8px}.controls{gap:5px}button,input{padding:4px}}
+  </style>
+</head>
+<body data-zone="villager_city">
+  <section id="panel">
+    <header><h1>Villager City</h1><a href="./index.html">Menu</a></header>
+    <p id="stats" role="status">Chargement...</p>
+    <form id="settings" class="controls">
+      <label>Seed <input id="seed" type="number" min="0" max="4294967295" value="42" required></label>
+      <button type="submit">Generer</button><button type="button" id="random">Aleatoire</button>
+      <button type="button" id="fly" aria-pressed="true">Vol</button><button type="button" id="overview" aria-pressed="false">Vue globale</button>
+      <label>Vitesse <input id="speed" type="range" min="4" max="60" value="16"></label>
+    </form>
+  </section>
+  <output id="position"></output>
+  <nav id="mobile" aria-label="Deplacement"><button data-key="z" title="Avancer">Z</button><button data-key="q" title="Gauche">Q</button><button data-key="s" title="Reculer">S</button><button data-key="d" title="Droite">D</button><button data-key="space" title="Monter">+</button><button data-key="c" title="Descendre">-</button></nav>
+  <script type="module" src="./wide_open_area_viewer.js"></script>
+</body>
+</html>

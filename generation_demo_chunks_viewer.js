@@ -32,6 +32,9 @@ const materials = {
   window: new THREE.MeshBasicMaterial({color:0x38434b}),
   house_bridge: new THREE.MeshLambertMaterial({color:0x61717c}),
   house_stair: new THREE.MeshLambertMaterial({color:0x61717c}),
+  main_tunnel: new THREE.MeshLambertMaterial({color:0x77828a}),
+  main_tunnel_frame: new THREE.MeshLambertMaterial({color:0x3d474f}),
+  ladder_support: new THREE.MeshLambertMaterial({color:0x61717c}),
   zone_main_bridge: new THREE.MeshBasicMaterial({color:0x1d78ff}),
   zone_small_bridge: new THREE.MeshLambertMaterial({color:0x8b929b}),
   zone_tower: new THREE.MeshLambertMaterial({color:0x22c55e}),
@@ -100,7 +103,11 @@ function visit() {
   $('overview').setAttribute('aria-pressed', 'false');
   $('fly').setAttribute('aria-pressed', 'true');
   const normals={north:[0,-1],south:[0,1],west:[-1,0],east:[1,0]};
-  if(type==='pipe') {
+  if(type==='gallery') {
+    const b=data.mainGalleries.interiors[id],x=b[0]+b[3]/2,z=b[2]+b[5]/2;
+    camera.position.set(x,b[1]+1.6,z);
+    camera.lookAt(x+(b[3]>b[5]?20:0),b[1]+1.6,z+(b[3]>b[5]?0:20));
+  } else if(type==='pipe') {
     const a=data.globalPipe.visits[id].pos;
     camera.position.set(a[0]+24,a[1]+18,a[2]+24);camera.lookAt(...a);
   } else if(type==='wide') {
@@ -211,6 +218,8 @@ function show(result) {
     ['Wide Open Area',(data.wideAreas||[]).filter(z=>z.type==='open').map(z=>new Option(`Wide Open ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
     ['Wide Restrict Area',(data.wideAreas||[]).filter(z=>z.type==='restrict').map(z=>new Option(`Wide Restrict ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
     ['Reseau de tuyaux',(data.globalPipe?.visits||[]).map((v,i)=>new Option(`${v.label} · Y ${v.pos[1]}`,`pipe:${i}`))],
+    ['Galeries principales',(data.mainGalleries?.interiors||[]).map((b,i)=>({b,i})).filter(({b})=>Math.max(b[3],b[5])>=12).slice(0,60)
+      .map(({b,i},n)=>new Option(`Galerie ${n+1} · Y ${b[1]}`,`gallery:${i}`))],
     ['Pieces denses',data.denseRooms.map(r=>new Option(`Dense ${r.id+1} · Y ${r.box[1]}`,`room:${r.id}`))],
     ['Acces Building Long',data.ports.filter(p=>p.buildingLong!==undefined).map(p=>new Option(`Building Long ${p.buildingLong+1} · ${p.end==='start'?'debut':'fin'} · chemin ${p.trail+1}`,`door:${p.id}`))],
     ['Portes orange',data.ports.filter(p=>p.buildingLong===undefined).map(p=>new Option(`Porte ${p.id+1} · ${p.snake===undefined?`Zone ${p.zone+1}`:`Snake ${p.snake+1}`}`,`door:${p.id}`))],
