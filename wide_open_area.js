@@ -131,7 +131,8 @@ export function generateWideOpenArea(seed=42) {
       }
     }
   }
-  boxes.push(...bridgeCells.values(),...railCells.values());
+  for(const box of bridgeCells.values())boxes.push(box);
+  for(const box of railCells.values())boxes.push(box);
   for(const t of terraces)for(const [nx,nz] of faces)for(let along=-t.radius;along<=t.radius;along++) {
     const x=t.x+nx*t.radius+(nz?along:0),z=t.z+nz*t.radius+(nx?along:0);
     if(t.doors.some(p=>Math.abs(x-p[0])<=4&&Math.abs(z-p[1])<=4))continue;
@@ -151,7 +152,7 @@ export function generateWideOpenArea(seed=42) {
   const layout={seed,world:AREA,boxes:mergeBoxes(boxes),towers,terraces,houses,bridges,spawn,
     lookAt:[spawn[0]+nx*130,arrival.y+12,spawn[2]+nz*130],stats:{towers:towers.length,houses:houses.length,bridges:bridges.length,terraces:terraces.length}};
   layout.details=decorateWideOpenArea(layout);
-  layout.boxes.push(...layout.details.boxes);
+  for(const box of layout.details.boxes)layout.boxes.push(box);
   Object.assign(layout.stats,{pipe:layout.details.pipe.points.length?1:0,groundBuildings:layout.details.buildings.filter(b=>b.anchor==='ground').length,
     suspendedBuildings:layout.details.buildings.filter(b=>b.anchor==='ceiling').length,decorativePillars:layout.details.pillars.length});
   return layout;

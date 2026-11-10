@@ -2,23 +2,25 @@ import * as THREE from './web/vendor/three.module.js';
 import { OrbitControls } from './web/vendor/OrbitControls.js';
 
 const $ = id => document.getElementById(id);
+const noiseMode = document.body.dataset.map === 'noise';
+const mapSize=noiseMode?10000:5000;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xedf0f2);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 document.body.prepend(renderer.domElement);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 30000);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, mapSize*12);
 camera.rotation.order = 'YXZ';
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.maxDistance = 15000;
+controls.maxDistance = mapSize*3;
 controls.minDistance = 5;
 controls.enableDamping = true;
 scene.add(new THREE.HemisphereLight(0xffffff, 0x8b959f, 2));
 const light = new THREE.DirectionalLight(0xffffff, 2);
 light.position.set(-2000, 4000, 1000);
 scene.add(light);
-const ground = new THREE.GridHelper(5000, 50, 0xaebac2, 0xd4dde2);
-ground.position.set(2500, -1, 2500);
+const ground = new THREE.GridHelper(mapSize, mapSize/100, 0xaebac2, 0xd4dde2);
+ground.position.set(mapSize/2, -1, mapSize/2);
 scene.add(ground);
 const plane = new THREE.PlaneGeometry(1, 1);
 const cube = new THREE.BoxGeometry(1,1,1);
@@ -27,6 +29,7 @@ renderer.clippingPlanes = [cutPlane];
 const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xa2adb7, transparent: true, opacity: 0.18, depthWrite: false });
 const tunnelMaterial = new THREE.MeshLambertMaterial({ color: 0x7497a3, transparent: true, opacity: 0.3, depthWrite: false });
 const materials = {
+  noise_floor: new THREE.MeshLambertMaterial({color:0x89968d}),
   wall: wallMaterial, tunnel: tunnelMaterial,
   house: new THREE.MeshLambertMaterial({color:0xb9c1c6}),
   window: new THREE.MeshBasicMaterial({color:0x38434b}),
@@ -74,6 +77,12 @@ for(const [type,palette] of Object.entries(wideColors)) {
   for(const [kind,color] of Object.entries(palette))materials[`wide_${type}_${kind}`]=new THREE.MeshLambertMaterial({color});
   materials[`wide_${type}_light`]=new THREE.MeshBasicMaterial({color:0xffdda3});
 }
+for(const [type,palette] of Object.entries({
+  water:{tower:0x738780,ground:0x687671,ceiling:0x83918c,boundary:0x83918c},
+  village:{house:0xb1b6a5,roof:0x78877b,bridge:0x61717c,deck:0x8d9990,window:0x38434b},
+}))for(const [kind,color] of Object.entries(palette))
+  materials[`${type}_${kind}`]=new THREE.MeshLambertMaterial({color});
+materials.water_water=new THREE.MeshLambertMaterial({color:0x358fba,transparent:true,opacity:0.75});
 const floorMaterials = colors.map(color => new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
 const lineMaterial = new THREE.LineBasicMaterial({ color: 0x536874, transparent: true, opacity: 0.45 });
 let content = new THREE.Group(), data, flying = false, worker;
@@ -88,9 +97,9 @@ function overview() {
   controls.enabled = true;
   $('overview').setAttribute('aria-pressed', 'true');
   $('fly').setAttribute('aria-pressed', 'false');
-  const distance = 3500 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect);
-  camera.position.set(2500 + distance*0.12, distance*0.88, 2500 + distance*0.47);
-  controls.target.set(2500, 0, 2500);
+  const distance = mapSize*.7 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect);
+  camera.position.set(mapSize/2 + distance*0.12, distance*0.88, mapSize/2 + distance*0.47);
+  controls.target.set(mapSize/2, 0, mapSize/2);
   controls.update();
 }
 
@@ -112,6 +121,9 @@ function visit() {
     camera.position.set(a[0]+24,a[1]+18,a[2]+24);camera.lookAt(...a);
   } else if(type==='wide') {
     const zone=data.wideAreas[id];
+    camera.position.set(...zone.spawn);camera.lookAt(...zone.lookAt);
+  } else if(type==='settlement') {
+    const zone=data.settlements[id];
     camera.position.set(...zone.spawn);camera.lookAt(...zone.lookAt);
   } else if(type==='long') {
     const zone=data.buildingLong[id];
@@ -155,7 +167,7 @@ function show(result) {
   scene.add(content);
   data = result;
   const lines = [];
-  for(const {box:[x,y,z,sx,sy,sz]} of [...(data.buildingLong||[]),...(data.wideAreas||[])]) {
+  for(const {box:[x,y,z,sx,sy,sz]} of [...(data.buildingLong||[]),...(data.wideAreas||[]),...(data.settlements||[])]) {
     for(const yy of [y,y+sy])lines.push(x,yy,z,x+sx,yy,z,x+sx,yy,z,x+sx,yy,z+sz,
       x+sx,yy,z+sz,x,yy,z+sz,x,yy,z+sz,x,yy,z);
     for(const xx of [x,x+sx])for(const zz of [z,z+sz])lines.push(xx,y,zz,xx,y+sy,zz);
@@ -184,6 +196,7 @@ function show(result) {
   data.networkBoxes.forEach(add);
   for(const snake of data.snakes||[])snake.boxes.forEach(add);
   for(const zone of data.buildingLong||[])zone.boxes.forEach(add);
+  for(const zone of data.settlements||[])zone.boxes.forEach(add);
   for(const box of data.globalPipe?.boxes||[])add(box);
   for(const zone of data.wideAreas||[])for(const box of zone.boxes) {
     if(data.globalPipe?.connectedZones.includes(zone.id)&&['wide_open_pipe','wide_open_pipe_band'].includes(box[6]))continue;
@@ -210,19 +223,22 @@ function show(result) {
   }
   $('zone').replaceChildren();
   for(const [label,values] of [
+    ['House tunnel snake',(data.snakes||[]).map(s=>new Option(`Snake ${s.id+1} · ${s.length} blocs · Y ${s.y}`,`snake:${s.id}`))],
     ['House Wall 64 x 64',data.zones.filter(z=>z.type==='house_wall').map((z,i)=>new Option(`House Wall ${i+1} · 64 x 64`, `zone:${z.id}`))],
     ['Bridges',data.zones.filter(z=>z.type==='bridge_zone').map((z,i)=>new Option(`Bridges ${i+1} · ${z.width*32} x ${z.depth*32}`, `zone:${z.id}`))],
     ['Cavites',data.zones.filter(z=>!z.type).map(z=>new Option(`Zone ${z.id+1} · ${z.width*32} x ${z.depth*32}`,`zone:${z.id}`))],
-    ['House tunnel snake',(data.snakes||[]).map(s=>new Option(`Snake ${s.id+1} · ${s.length} blocs · Y ${s.y}`,`snake:${s.id}`))],
     ['Building Long',(data.buildingLong||[]).map(z=>new Option(`Building Long ${z.id+1} · ${z.length} blocs · Y ${z.box[1]}`,`long:${z.id}`))],
     ['Wide Open Area',(data.wideAreas||[]).filter(z=>z.type==='open').map(z=>new Option(`Wide Open ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
     ['Wide Restrict Area',(data.wideAreas||[]).filter(z=>z.type==='restrict').map(z=>new Option(`Wide Restrict ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
+    ['Water Rooms',(data.settlements||[]).filter(z=>z.type==='water').map(z=>new Option(`Water Room ${z.index+1} · Y ${z.box[1]}`,`settlement:${z.id}`))],
+    ['Villager Cities',(data.settlements||[]).filter(z=>z.type==='village').map(z=>new Option(`Village ${z.index+1} · Y ${z.box[1]}`,`settlement:${z.id}`))],
     ['Reseau de tuyaux',(data.globalPipe?.visits||[]).map((v,i)=>new Option(`${v.label} · Y ${v.pos[1]}`,`pipe:${i}`))],
     ['Galeries principales',(data.mainGalleries?.interiors||[]).map((b,i)=>({b,i})).filter(({b})=>Math.max(b[3],b[5])>=12).slice(0,60)
       .map(({b,i},n)=>new Option(`Galerie ${n+1} · Y ${b[1]}`,`gallery:${i}`))],
     ['Pieces denses',data.denseRooms.map(r=>new Option(`Dense ${r.id+1} · Y ${r.box[1]}`,`room:${r.id}`))],
     ['Acces Building Long',data.ports.filter(p=>p.buildingLong!==undefined).map(p=>new Option(`Building Long ${p.buildingLong+1} · ${p.end==='start'?'debut':'fin'} · chemin ${p.trail+1}`,`door:${p.id}`))],
-    ['Portes orange',data.ports.filter(p=>p.buildingLong===undefined).map(p=>new Option(`Porte ${p.id+1} · ${p.snake===undefined?`Zone ${p.zone+1}`:`Snake ${p.snake+1}`}`,`door:${p.id}`))],
+    ['Acces villages',data.ports.filter(p=>p.village!==undefined).map(p=>new Option(`Village ${data.settlements[p.village].index+1} · ${p.side}`,`door:${p.id}`))],
+    ['Portes orange',data.ports.filter(p=>p.buildingLong===undefined&&p.village===undefined).map(p=>new Option(`Porte ${p.id+1} · ${p.snake===undefined?`Zone ${p.zone+1}`:`Snake ${p.snake+1}`}`,`door:${p.id}`))],
   ]) {
     const group=document.createElement('optgroup');group.label=label;group.append(...values);$('zone').append(group);
   }
@@ -230,6 +246,9 @@ function show(result) {
   $('stats').textContent = `${data.zones.length} zones · ${(data.wideAreas||[]).filter(z=>z.type==='open').length} Wide Open · ${(data.wideAreas||[]).filter(z=>z.type==='restrict').length} Wide Restrict · ${(data.snakes||[]).length} snakes · ${(data.buildingLong||[]).length} Building Long (${s.buildingConnections} acces) · ${s.wallHouses} maisons · ${s.connectedDense}/${s.denseRooms} denses reliees · ${s.connectedDoors}/${s.orangeDoors} portes reliees`;
   if(data.globalPipe)$('stats').textContent+=` · tuyaux ${data.globalPipe.length} blocs · ${data.globalPipe.branches.length} branches · ${data.globalPipe.connectedZones.length} Wide Open raccordes`;
   $('stats').textContent=`${data.zones.filter(z=>z.type==='house_wall').length} House Wall 64 x 64 · ${data.zones.filter(z=>z.type==='bridge_zone').length} Bridges · `+$('stats').textContent;
+  if(data.settlements?.length)$('stats').textContent+=` · ${data.settlements.filter(z=>z.type==='water').length} Water Rooms · ${data.settlements.filter(z=>z.type==='village').length} Villager Cities (${s.villageConnections||0} acces)`;
+  if(data.noise?.full)$('stats').textContent+=` · Noise ${data.world.length} x ${data.world.width} · ${data.noise.components} secteurs · ${data.noise.seconds.toFixed(1)} s`;
+  else if(data.noise)$('stats').textContent=`${data.world.length} x ${data.world.width} x ${data.world.height} · ${s.denseRooms} pieces reliees aux galeries · ${data.noise.components} secteurs · ${data.noise.seconds.toFixed(1)} s`;
   overview();
 }
 
@@ -238,10 +257,11 @@ function generate() {
   worker?.terminate();
   $('stats').textContent='Generation des maisons et connexions...';
   const seed=Number($('seed').value), density=Number($('count').value);
-  worker=new Worker('./generation_demo_chunks_worker.js',{type:'module'});
+  worker=new Worker(noiseMode?'./generation_noise_worker.js':'./generation_demo_chunks_worker.js',{type:'module'});
   const current=worker;
   worker.onmessage=({data:message})=>{
     if(current!==worker)return;
+    if(message.progress){$('stats').textContent=message.progress;return;}
     if(message.error)$('stats').textContent=`Generation impossible : ${message.error}`;
     else show(message.result);
     current.terminate();

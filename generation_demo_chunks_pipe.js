@@ -29,6 +29,7 @@ export function generatePipeTrunk(layout) {
   const {world} = layout, top = world.height - 12;
   const obstacles = [...layout.zones.map(z => [z.x * 32 - 80, 0, z.z * 32 - 80, z.width * 32 + 160, world.height, z.depth * 32 + 160]),
     ...(layout.buildingLong || []).map(z => z.box), ...(layout.wideAreas || []).map(z => z.box),
+    ...(layout.settlements || []).flatMap(z => [z.box,...(z.accessVolumes||[])]),
     ...(layout.pipeAccessReservations || [])];
   const snakes = (layout.snakes || []).flatMap(s => s.volumes);
   const clear = (a, b) => {

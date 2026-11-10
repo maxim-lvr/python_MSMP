@@ -1,6 +1,6 @@
 // Simultaneous weighted growth from every entrance, then a spanning tree of
 // neighbouring regions. Paths join locally instead of all converging on one origin.
-export function localTunnelNetwork(size, blocked, terminals, seed) {
+export function localTunnelNetwork(size, blocked, terminals, seed, allowDisconnected=false) {
   const roots=[...new Set(terminals)],length=blocked.length;
   const distance=new Float64Array(length).fill(Infinity);
   const owner=new Int32Array(length).fill(-1),parent=new Int32Array(length).fill(-1);
@@ -69,15 +69,16 @@ export function localTunnelNetwork(size, blocked, terminals, seed) {
     const a=find(contact.ra),b=find(contact.rb);if(a===b)continue;
     components[a]=b;joins++;branch(contact.a);branch(contact.b);add(contact.a,contact.b);
   }
-  if(joins!==roots.length-1)throw Error('Disconnected entrance regions');
+  if(!allowDisconnected&&joins!==roots.length-1)throw Error('Disconnected entrance regions');
   const adjacent=new Map();
   for(const [a,b] of edges)for(const [u,v] of [[a,b],[b,a]]) {
     if(!adjacent.has(u))adjacent.set(u,[]);adjacent.get(u).push(v);
   }
-  const parents=new Int32Array(length).fill(-1),order=[roots[0]],seen=new Set(order);
+  const starts=allowDisconnected?[...new Map(roots.map((node,i)=>[find(i),node])).values()]:[roots[0]];
+  const parents=new Int32Array(length).fill(-1),order=[...starts],seen=new Set(order);
   for(let i=0;i<order.length;i++)for(const next of adjacent.get(order[i])||[])if(!seen.has(next)) {
     seen.add(next);parents[next]=order[i];order.push(next);
   }
   if(roots.some(id=>!seen.has(id)))throw Error('Missing entrance connection');
-  return {edges,parents,order};
+  return {edges,parents,order,roots:starts};
 }

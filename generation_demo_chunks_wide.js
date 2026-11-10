@@ -14,14 +14,15 @@ export function placeWideAreas(layout) {
   const occupied = layout.zones.map(z => [z.x * s, 0, z.z * s, z.width * s, layout.world.height, z.depth * s]);
   occupied.push(...(layout.buildingLong || []).map(z => z.box), ...(layout.snakes || []).flatMap(z => z.volumes));
   const areas = [];
-  for (const [type, count] of Object.entries(WIDE_COUNTS)) for (let index = 0; index < count; index++) {
+  for (const [type, count] of Object.entries(layout.buildCounts?.wide||WIDE_COUNTS)) for (let index = 0; index < count; index++) {
     const size = type === 'open' ? OPEN_AREA : RESTRICT_AREA;
     let area;
     for (let attempt = 0; attempt < 12000; attempt++) {
       const rotation = integer(0, 1), sx = rotation ? size.width : size.length, sz = rotation ? size.length : size.width;
       const x = integer(4, Math.floor((layout.world.length - sx - 128) / s)) * s;
       const z = integer(4, Math.floor((layout.world.width - sz - 128) / s)) * s;
-      const y = 16 + areas.length * 12, box = [x, y, z, sx, size.height, sz];
+      const y = Math.min(layout.world.height-size.height-8,16 + areas.length * 12), box = [x, y, z, sx, size.height, sz];
+      if(layout.isSolidBox&&!layout.isSolidBox([x-16,0,z-16,sx+32,300,sz+32]))continue;
       const gap = attempt < 3000 ? GAP : attempt < 8000 ? 96 : 64;
       if (occupied.some(b => x < b[0] + b[3] + gap && x + sx + gap > b[0] &&
         z < b[2] + b[5] + gap && z + sz + gap > b[2])) continue;

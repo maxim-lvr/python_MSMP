@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Megastructure</title>
+  <link rel="icon" href="data:,">
+  <script type="importmap">{"imports":{"three":"./web/vendor/three.module.js"}}</script>
+  <style>
+    *{box-sizing:border-box;letter-spacing:0}body{margin:0;overflow:hidden;background:#303a38;color:#e4e7df;font:13px Arial,sans-serif}
+    canvas{display:block;touch-action:none}#hud{position:absolute;z-index:2;top:12px;left:12px;max-width:calc(100% - 24px);width:660px;background:#202727ef;border:1px solid #606d64;padding:12px}
+    header{display:flex;gap:12px;align-items:center}h1{font-size:17px;margin:0;flex:1}a{color:#c3d6bf}#stats{color:#c0c8bd;margin:8px 0;line-height:1.4}form{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+    button,input,select{font:inherit;color:inherit;background:#323d3b;border:1px solid #61706a;border-radius:3px;min-height:32px;padding:5px 8px;max-width:100%}
+    button{cursor:pointer}button:hover{background:#47544f}button[aria-pressed=true]{background:#637761;color:white}button:disabled{opacity:.45}
+    input[type=number]{width:105px}input[type=range]{width:85px;padding:0}input[type=checkbox]{accent-color:#c3d6bf;min-height:auto}label{display:inline-flex;gap:6px;align-items:center}
+    #visit{width:270px;flex:1 1 240px}output{min-width:26px}#position{position:absolute;bottom:12px;right:12px;background:#202727dc;padding:7px;color:#c0c8bd;pointer-events:none}
+    #touch{position:absolute;bottom:12px;left:12px;z-index:2;display:none;grid-template-columns:repeat(3,40px);gap:5px}#touch button{height:40px;touch-action:none}
+    @media(pointer:coarse){#touch{display:grid}}@media(max-width:600px){#hud{top:6px;left:6px;max-width:calc(100% - 12px);padding:9px}h1{font-size:15px}#stats{font-size:11px}form{gap:5px}button,input,select{font-size:12px}#visit{flex-basis:100%}#position{font-size:10px}}
+  </style>
+</head>
+<body>
+  <section id="hud">
+    <header><h1>Megastructure</h1><a href="/">Menu</a></header>
+    <p id="stats" role="status">Chargement...</p>
+    <form id="settings">
+      <label>Seed <input id="seed" type="number" min="0" max="4294967295" value="42" required></label>
+      <button id="generate" type="submit">Generer</button><button id="random" type="button">Aleatoire</button>
+      <button id="fly" type="button" aria-pressed="true">Immersion</button><button id="plan" type="button" aria-pressed="false">Plan</button>
+      <select id="visit" aria-label="Point de visite"></select>
+      <label><input type="checkbox" id="inspection">Coupe ouverte</label>
+      <label>Hauteur <input id="cut" type="range" min="10" max="300" value="300"><output id="height">300</output></label>
+      <label>Vitesse <input id="speed" type="range" min="10" max="220" value="45"></label>
+    </form>
+  </section>
+  <div id="touch"><button data-key=" " aria-label="Monter">+</button><button data-key="z" aria-label="Avancer">&#9650;</button><button data-key="c" aria-label="Descendre">-</button><button data-key="q" aria-label="Gauche">&#9664;</button><button data-key="s" aria-label="Reculer">&#9660;</button><button data-key="d" aria-label="Droite">&#9654;</button></div>
+  <output id="position"></output>
+  <script type="module" src="./generation_megastructure_viewer.js"></script>
+</body>
+</html>

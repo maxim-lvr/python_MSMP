@@ -10,7 +10,7 @@ export function generateVillagerCity(seed=42) {
   const deckCells=new Map(),anchors=[];
   const inside=b=>b[0]>=3&&b[2]>=3&&b[0]+b[3]<=197&&b[2]+b[5]<=77&&b[1]>=4&&b[1]+b[4]<96;
   function branch(anchor,axis,sign,length,central=false) {
-    const side=axis===0?2:0,start=anchor.point,sx=integer(4,8),sz=integer(4,8);
+    const side=axis===0?2:0,start=anchor.point,sx=integer(6,10),sz=integer(6,10);
     const floor=central?44:start[1]+integer(-3,3),end=[...start];end[axis]+=sign*length;end[1]=floor;
     const house=[end[0]-Math.floor(sx/2),floor,end[2]-Math.floor(sz/2),sx,7,sz];
     house[axis]=end[axis]-(sign<0?house[axis+3]-1:0);

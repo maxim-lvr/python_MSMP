@@ -23,11 +23,26 @@ export function expandPipeNetwork(layout,trunk) {
   const {world}=layout, limits=[world.length,world.height,world.width];
   const obstacles=[...layout.zones.map(z=>({box:[z.x*32-80,0,z.z*32-80,z.width*32+160,world.height,z.depth*32+160]})),
     ...(layout.buildingLong||[]).map(z=>({box:z.box})),...(layout.wideAreas||[]).map(z=>({box:z.box,wide:z.id})),
+    ...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])].map(box=>({box}))),
     ...(layout.snakes||[]).flatMap(z=>z.volumes.map(box=>({box}))),
     ...(layout.pipeAccessReservations||[]).map(box=>({box}))];
+  const obstacleBuckets=new Map();
+  const bucketKeys=function*(b) {
+    for(let x=Math.floor(b[0]/128);x<=Math.floor((b[0]+b[3]-1)/128);x++)
+      for(let z=Math.floor(b[2]/128);z<=Math.floor((b[2]+b[5]-1)/128);z++)yield `${x},${z}`;
+  };
+  for(const obstacle of obstacles)for(const key of bucketKeys(obstacle.box)) {
+    if(!obstacleBuckets.has(key))obstacleBuckets.set(key,[]);
+    obstacleBuckets.get(key).push(obstacle);
+  }
   const clear=(a,b,owner)=>{
     if(a.some((n,i)=>n<MARGIN||n+MARGIN>=limits[i])||b.some((n,i)=>n<MARGIN||n+MARGIN>=limits[i]))return false;
-    return !obstacles.some(o=>(owner===undefined||o.wide!==owner)&&overlaps(volume(a,b),o.box));
+    const box=volume(a,b),seen=new Set();
+    for(const key of bucketKeys(box))for(const o of obstacleBuckets.get(key)||[]) {
+      if(seen.has(o))continue;seen.add(o);
+      if((owner===undefined||o.wide!==owner)&&overlaps(box,o.box))return false;
+    }
+    return true;
   };
   const elbow=(a,b)=>{
     for(const c of [[a[0],a[1],b[2]],[b[0],a[1],a[2]]])if(clear(a,c)&&clear(c,b))return compact([a,c,b]);
@@ -40,8 +55,14 @@ export function expandPipeNetwork(layout,trunk) {
     const blocked=new Uint8Array(size*size),r=STEP/2+MARGIN;
     for(let id=0;id<blocked.length;id++) {
       const p=point(id,y);
-      if(p[0]<MARGIN||p[0]+MARGIN>=world.length||p[2]<MARGIN||p[2]+MARGIN>=world.width||
-        obstacles.some(o=>overlaps([p[0]-r,y-MARGIN,p[2]-r,r*2+1,MARGIN*2+1,r*2+1],o.box)))blocked[id]=1;
+      if(p[0]<MARGIN||p[0]+MARGIN>=world.length||p[2]<MARGIN||p[2]+MARGIN>=world.width)blocked[id]=1;
+    }
+    // Rasterize obstacle rectangles once, instead of testing every grid cell against every obstacle.
+    for(const {box:b} of obstacles) {
+      if(y-MARGIN>=b[1]+b[4]||y+MARGIN+1<=b[1])continue;
+      const x0=Math.max(0,Math.floor((b[0]-r-1)/STEP)+1),x1=Math.min(size-1,Math.ceil((b[0]+b[3]+r)/STEP)-1);
+      const z0=Math.max(0,Math.floor((b[2]-r-1)/STEP)+1),z1=Math.min(size-1,Math.ceil((b[2]+b[5]+r)/STEP)-1);
+      for(let z=z0;z<=z1;z++)blocked.fill(1,z*size+x0,z*size+x1+1);
     }
     // Label components once so an impossible route does not trigger repeated searches.
     const components=new Int32Array(blocked.length).fill(-1);
@@ -122,14 +143,14 @@ export function expandPipeNetwork(layout,trunk) {
     for(const end of [0,local.length-1]) {
       const p=local[end],neighbor=local[end===0?1:end-1],normal=p.map((n,i)=>Math.sign(n-neighbor[i]));
       let connection;
-      for(const length of [24,48,80,112]) {
+      for(const length of [24,48,80,112,160,224]) {
         if(connection)break;
         const outside=p.map((n,i)=>n+normal[i]*length);
         if(!clear(p,outside,zone.id))continue;
         for(const y of [288,p[1],208,120,72]) {
           const exit=[outside[0],y,outside[2]];
           if(!clear(outside,exit))continue;
-          for(const anchor of anchors(exit).slice(0,28)) {
+          for(const anchor of anchors(exit).slice(0,layout.isSolidBox?80:28)) {
             const entry=[anchor[0],y,anchor[2]];
             if(!clear(entry,anchor))continue;
             const path=route(exit,entry);if(!path)continue;
@@ -138,9 +159,13 @@ export function expandPipeNetwork(layout,trunk) {
           if(connection)break;
         }
       }
-      if(!connection)throw Error(`Raccord du tuyau Wide Open ${zone.index+1} introuvable (seed ${layout.seed})`);
+      if(!connection) {
+        if(layout.isSolidBox)continue;
+        throw Error(`Raccord du tuyau Wide Open ${zone.index+1} introuvable (seed ${layout.seed})`);
+      }
       paths.push(connection);links.push({zone:zone.id,port:end===0?'start':'end',pos:p,path:paths.length-1});
     }
+    if(!links.length)throw Error(`Aucun raccord du tuyau Wide Open ${zone.index+1} (seed ${layout.seed})`);
     paths.push(local);connections.push(...links);connectedZones.push(zone.id);
     visits.push({label:`Raccord Wide Open ${zone.index+1}`,pos:links[0].pos});
   }
@@ -148,17 +173,17 @@ export function expandPipeNetwork(layout,trunk) {
   const coverageBounds=[...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,world.height,z.depth*32]),
     ...(layout.buildingLong||[]).map(z=>z.box),...(layout.wideAreas||[]).map(z=>z.box),
     ...(layout.snakes||[]).flatMap(s=>s.volumes.filter((_,i)=>i%3===0))];
-  const proximity=box=>Math.min(...paths.flatMap(path=>path.slice(1).map((b,i)=>{
+  const proximity=(box,source=paths)=>Math.min(...source.flatMap(path=>path.slice(1).map((b,i)=>{
     const a=path[i];
     return Math.hypot(...[0,1,2].map(j=>Math.max(0,
       box[j]-Math.max(a[j],b[j]),Math.min(a[j],b[j])-box[j]-box[j+3])));
   })));
-  const pending=coverageBounds.map((box,id)=>({box,id}));
+  const pending=coverageBounds.map((box,id)=>({box,id,distance:proximity(box)}));
   const uncovered=[];
   while(pending.length) {
-    pending.sort((a,b)=>proximity(b.box)-proximity(a.box));
-    const {box,id}=pending.shift();
-    if(proximity(box)<=180)continue;
+    pending.sort((a,b)=>b.distance-a.distance);
+    const {box,id,distance:nearest}=pending.shift();
+    if(nearest<=180)continue;
     let added=false;
     for(const y of [96,176,248,32,120,208,288]) {
       if(added)break;
@@ -178,6 +203,7 @@ export function expandPipeNetwork(layout,trunk) {
             if(back){path=compact([...path,...back,other]);break;}
           }
           paths.push(path);branches.push({coverage:id,y,path:paths.length-1});
+          for(const item of pending)item.distance=Math.min(item.distance,proximity(item.box,[path]));
           visits.push({label:`Branche ${branches.length}`,pos:target});added=true;break;
         }
         if(added)break;

@@ -1,6 +1,7 @@
 // Same parent/child growth principle as map_builde_dense_1.horizontal_child.
 // The spatial index is only a collision accelerator, never a placement grid.
 export function growDense({layout,houses,shafts,routes,galleries,target,integer,addAir,sizes}) {
+  const world=layout.world||{length:5000,width:5000,height:300};
   const buckets=new Map(), rooms=[], connections=[], anchors=[];
   const overlap=(a,b)=>[0,1,2].every(i=>a[i]<b[i]+b[i+3]&&a[i]+a[i+3]>b[i]);
   const keys=function*(b){
@@ -10,7 +11,7 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
   };
   const insert=item=>{for(const k of keys(item.box)){if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(item);}};
   const clear=(box,allowed=[])=>{
-    if(box[0]<2||box[2]<2||box[1]<2||box[0]+box[3]>4998||box[2]+box[5]>4998||box[1]+box[4]>298)return false;
+    if(box[0]<2||box[2]<2||box[1]<2||box[0]+box[3]>world.length-2||box[2]+box[5]>world.width-2||box[1]+box[4]>world.height-2)return false;
     const seen=new Set();
     for(const k of keys(box))for(const item of buckets.get(k)||[]) {
       if(seen.has(item)||allowed.includes(item))continue;
@@ -21,11 +22,23 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
   houses.forEach(h=>insert({box:h.box}));
   for(const zone of layout.buildingLong||[])insert({box:zone.box});
   for(const zone of layout.wideAreas||[])insert({box:zone.box});
+  for(const zone of layout.settlements||[])for(const box of [zone.box,...(zone.accessVolumes||[])])insert({box});
   for(const box of layout.globalPipe?.volumes||[])insert({box});
   for(const snake of layout.snakes||[])for(const box of snake.volumes)insert({box});
   // Cavities span the entire height. Their boundaries can never be crossed by growth.
   const cavities=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]);
-  const outside=b=>!cavities.some(c=>overlap(b,c));
+  const cavityBuckets=new Map();
+  for(const b of cavities)for(let x=Math.floor(b[0]/128);x<=Math.floor((b[0]+b[3]-1)/128);x++)
+    for(let z=Math.floor(b[2]/128);z<=Math.floor((b[2]+b[5]-1)/128);z++) {
+      const k=`${x},${z}`;if(!cavityBuckets.has(k))cavityBuckets.set(k,[]);cavityBuckets.get(k).push(b);
+    }
+  const outside=b=>{
+    if(layout.isSolidBox&&!layout.isSolidBox(b))return false;
+    for(let x=Math.floor(b[0]/128);x<=Math.floor((b[0]+b[3]-1)/128);x++)
+      for(let z=Math.floor(b[2]/128);z<=Math.floor((b[2]+b[5]-1)/128);z++)
+        if((cavityBuckets.get(`${x},${z}`)||[]).some(c=>overlap(b,c)))return false;
+    return true;
+  };
   for(const shaft of shafts)insert({box:[shaft.x-1,shaft.bottom,shaft.z-1,3,shaft.top-shaft.bottom+4,3]});
   const galleryItems=(galleries?.outer||[]).map(box=>({box}));
   for(const item of galleryItems) {
@@ -47,7 +60,7 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
   }
   if(!anchors.length)throw Error('No tunnel anchors for dense growth');
   const sides=['west','east','north','south'],opposite=[1,0,3,2];
-  let goal=[2500,150,2500];
+  let goal=[world.length/2,world.height/2,world.width/2];
   const sectors=new Map(),columns=new Map(),heightCounts=Array(6).fill(0);
   const column=b=>`${Math.floor(b[0]/128)},${Math.floor(b[2]/128)}`;
   const sector=b=>`${Math.floor(b[0]/128)},${Math.floor(b[1]/50)},${Math.floor(b[2]/128)}`;
@@ -55,7 +68,7 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
     if(attempt%32===0) {
       let best=Infinity;
       for(let n=0;n<12;n++) {
-        const p=[integer(24,4976),integer(12,280),integer(24,4976)];
+        const p=[integer(24,world.length-24),integer(12,world.height-20),integer(24,world.width-24)];
         if(!outside([...p,1,1,1]))continue;
         const score=heightCounts[Math.floor(p[1]/50)]+(sectors.get(sector(p))||0)*6+(columns.get(column(p))||0)*12;
         if(score<best){goal=p;best=score;}
@@ -75,7 +88,8 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
     if(integer(0,3)>0)side=Math.abs(goal[0]-p[0])>Math.abs(goal[2]-p[2])?(goal[0]<p[0]?0:1):(goal[2]<p[2]?2:3);
     const axis=side<2?0:2,along=axis===0?2:0,sign=side%2===0?-1:1;
     if(parent.openings[sides[side]] || (parent.id===null && axis!==parent.axis))continue;
-    const size=[integer(sizes[0],sizes[1]),integer(sizes[2],sizes[3]),integer(sizes[0],sizes[1])];
+    const range=layout.denseSizeRanges?layout.denseSizeRanges[integer(0,layout.denseSizeRanges.length-1)]:sizes;
+    const size=[integer(range[0],range[1]),integer(range[2],range[3]),integer(range[0],range[1])];
     const toward=Math.sign(goal[1]-p[1]);
     const dy=integer(0,3)?toward*integer(1,7):integer(-7,7),floor=p[1]+dy;
     const gap=integer(Math.max(7,Math.abs(dy)+5),integer(0,19)===0?48:26);

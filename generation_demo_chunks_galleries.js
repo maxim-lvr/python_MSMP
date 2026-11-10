@@ -24,7 +24,8 @@ export function prepareGalleries(layout,houses,shafts,routes) {
   const obstacles=spatial([...houses.map(h=>h.box),
     ...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]),
     ...(layout.snakes||[]).flatMap(s=>s.volumes),...(layout.buildingLong||[]).map(z=>z.box),
-    ...(layout.wideAreas||[]).map(z=>z.box),...(layout.globalPipe?.volumes||[])]);
+    ...(layout.wideAreas||[]).map(z=>z.box),...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])]),
+    ...(layout.globalPipe?.volumes||[])]);
   const outer=[],inner=[],joints=new Map();
   const clear=box=>box[0]>=1&&box[2]>=1&&box[1]>=1&&box[0]+box[3]<layout.world.length&&
     box[2]+box[5]<layout.world.width&&box[1]+box[4]<layout.world.height&&!obstacles(box).length;
