@@ -38,17 +38,20 @@
     <form id="settings">
       <label for="seed">Seed</label><input id="seed" type="number" min="0" max="4294967295" value="42" required>
       <label for="count">Pieces / 4 x 4 chunks</label><input id="count" type="number" min="1" max="20" value="6" required>
-      <button type="submit">Generer</button><button type="button" id="random">Aleatoire</button>
+      <label class="setting">Threads <select id="threads"><option value="4" selected>4</option><option value="6">6</option><option value="8">8</option></select></label>
+      <button type="submit">Generer</button><button type="button" id="rebuild" title="Recalculer toutes les etapes sans utiliser le cache">Recalculer tout</button><button type="button" id="random">Aleatoire</button>
       <button type="button" id="overview" aria-pressed="true">Vue globale</button><button type="button" id="fly" aria-pressed="false">Vol</button>
+      <button type="button" id="pipe-door" disabled>Voir une porte de tuyau</button>
       <select id="zone" aria-label="Zone"></select>
       <label class="setting"><input id="inspection" type="checkbox" checked>Inspection</label>
-      <label class="setting">Coupe <input id="cut" type="range" min="10" max="300" value="300"><output id="cut-value">300</output></label>
+      <label class="setting">Coupe <input id="cut" type="range" min="-64" max="320" value="320"><output id="cut-value">320</output></label>
     </form>
+    <p id="loading" style="margin:6px 0 0;color:#56646c;font-size:12px" role="status"></p>
   </section>
   <div id="touch">
     <button data-key=" " aria-label="Monter">+</button><button data-key="z" aria-label="Avancer">&#9650;</button><button data-key="c" aria-label="Descendre">-</button>
     <button data-key="q" aria-label="Gauche">&#9664;</button><button data-key="s" aria-label="Reculer">&#9660;</button><button data-key="d" aria-label="Droite">&#9654;</button>
   </div>
-  <script type="module" src="./generation_demo_chunks_viewer.js"></script>
+  <script type="module" src="./generation_demo_chunks_viewer.js?v=staged-cache-v1"></script>
 </body>
 </html>

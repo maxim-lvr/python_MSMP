@@ -34,7 +34,7 @@ allowed.update(f"minecraft:ladder[facing={f}]" for f in ("north", "south", "east
 assert palette <= allowed
 assert {"air_noise", "air_gallery", "air_pipe", "dense", "ladder_support"} <= counts.keys()
 if header["source"].get("region") == "full":
-    assert header["zone"] == {"pos": [0, 0, 0], "size": [10000, 300, 10000]}
+    assert header["zone"] == {"pos": [0, -64, 0], "size": [10000, 384, 10000]}
     assert header["source_stats"]["waterRooms"] == 4
     assert header["source_stats"]["villages"] == 50
     assert header["source_stats"]["villageConnections"] == 100

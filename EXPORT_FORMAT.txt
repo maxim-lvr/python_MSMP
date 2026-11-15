@@ -8,7 +8,10 @@ Coordonnees
 - "pos" est le coin minimum du placement: [x, y, z].
 - "size" est la taille en blocs: [largeur_x, hauteur_y, longueur_z].
 - La map utilise la hauteur monde -64 a 320.
-- La generation actuelle remplit jusqu'a Y 300.
+- La limite Y 320 est exclusive: les couches de blocs vont de Y -64 a Y 319, soit 384 blocs.
+- Les exports recents en "runs" utilisent zone.pos = [0, -64, 0] et zone.size = [longueur, 384, largeur].
+- Leurs positions sont deja absolues: ne pas appliquer un second decalage de -64.
+- Dans la generation finale, les runs air_pipe_access ouvrent les portes laterales 1x2 et les raccords directs aux pieces, maisons ou tunnels existants, ainsi que les puits d'echelle traversant le plafond des tuyaux vers une piece au-dessus. Les nouveaux raccords ne servent jamais de destination a un autre acces. Les sols pipe_walkway et pipe_access sont poses apres le creusement des tuyaux; les pipe_ladder sont poses en dernier avec leur support. Conserver cet ordre pour garder des passages praticables.
 
 Types de placements
 

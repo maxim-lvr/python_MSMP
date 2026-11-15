@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>House wall ultra dense</title>
+  <script type="importmap">{"imports":{"three":"./web/vendor/three.module.js"}}</script>
+  <style>
+    *{box-sizing:border-box}body{margin:0;overflow:hidden;background:#dce1df;color:#283530;font:13px Arial,sans-serif}
+    canvas{display:block;touch-action:none}#panel{position:fixed;top:10px;left:10px;right:10px;z-index:2;width:fit-content;max-width:calc(100% - 20px);padding:12px;background:#fffffff0;border:1px solid #bcc7c1}
+    header{display:flex;align-items:center;justify-content:space-between;gap:25px}h1{font-size:16px;margin:0}a{color:#356b59}
+    #stats{margin:8px 0;line-height:1.5;color:#53625a}.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    button,input{font:inherit;min-height:32px;border:1px solid #b5c2b9;background:#f6f9f7;color:inherit;border-radius:3px;padding:5px 9px}button{cursor:pointer}button[aria-pressed=true]{background:#356b59;color:white}
+    label{display:inline-flex;gap:5px;align-items:center}input[type=checkbox]{min-height:0;accent-color:#356b59}input[type=range]{width:85px;padding:0}
+    .help{margin:8px 0 0;color:#66746b;font-size:12px}#position{position:fixed;bottom:12px;right:12px;padding:6px 9px;background:#ffffffe0;font-variant-numeric:tabular-nums}
+    #mobile{display:none;position:fixed;bottom:12px;left:12px;gap:5px;z-index:2}#mobile button{width:40px;height:40px;touch-action:none}
+    @media(pointer:coarse){body[data-mode=fly] #mobile{display:flex}#position{bottom:62px}}@media(max-width:600px){#panel{padding:9px}h1{font-size:14px}#stats{font-size:12px}.help{max-width:310px}}
+  </style>
+</head>
+<body>
+  <section id="panel">
+    <header><h1>House wall ultra dense</h1><a href="./index.html">Menu</a></header>
+    <p id="stats" role="status">Construction du prototype...</p>
+    <div class="controls">
+      <button id="overview" type="button" aria-pressed="true">Vue d'ensemble</button>
+      <button id="fly" type="button" aria-pressed="false">Visiter l'interieur</button>
+      <button id="room" type="button">Voir une piece</button>
+      <label><input id="open-walls" type="checkbox">Coupe : masquer deux murs</label>
+      <label>Vitesse <input id="speed" type="range" min="8" max="70" value="22"></label>
+    </div>
+    <p class="help">ZQSD : déplacement · Espace / C : monter / descendre · Maj : accélérer · Clic : regarder à la souris · Échap : libérer la souris</p>
+  </section>
+  <output id="position"></output>
+  <nav id="mobile" aria-label="Déplacement">
+    <button data-key="z" aria-label="Avancer">Z</button><button data-key="q" aria-label="Gauche">Q</button><button data-key="s" aria-label="Reculer">S</button><button data-key="d" aria-label="Droite">D</button><button data-key="space" aria-label="Monter">+</button><button data-key="c" aria-label="Descendre">−</button>
+  </nav>
+  <script type="module" src="./house_wall_ultra_dense_viewer.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><title>Generation worker benchmark</title><pre id="status">Generation…</pre>
+<script type="module">
+const started=performance.now(),worker=new Worker('./generation_parallel_benchmark_worker.js',{type:'module'});
+const threads=Number(new URLSearchParams(location.search).get('threads')||6);
+let last=0;
+let pending=Promise.resolve();
+const report=body=>pending=pending.catch(()=>{}).then(()=>fetch('/__parallel_result?name=benchmark',{method:'POST',body:JSON.stringify(body),signal:AbortSignal.timeout(4000)})).catch(error=>console.error('Benchmark report',error));
+worker.onmessage=async({data})=>{
+ if(data.diagnostic!==undefined){window.workerDiagnostics=data.diagnostic;return;}
+ if(data.progress){document.querySelector('#status').textContent=data.progress;
+   if(performance.now()-last>1000||!data.progress.startsWith('Portes laterales')){last=performance.now();await report({status:'running',threads,progress:data.progress,seconds:(performance.now()-started)/1000});}return;}
+ if(data.stale||data.error){globalThis.benchmarkResult={error:data.error||'Sources changed'};await report({ok:false,error:data.error||'Sources changed'});worker.terminate();return;}
+ const result=data.result,stats=result.stats;
+ globalThis.benchmarkResult={world:result.world,loading:result.loading,stats};
+ const expected={wallHouses:75810,denseRooms:26514,ultraDenseConnections:37,villageConnections:100};
+ const ok=Object.entries(expected).every(([k,v])=>stats[k]===v)&&result.world.height===1000;
+ await report({ok,status:'done',threads,seconds:(performance.now()-started)/1000,loading:result.loading,stats});
+ document.querySelector('#status').textContent=JSON.stringify({ok,loading:result.loading});worker.terminate();
+};
+worker.onerror=event=>{globalThis.benchmarkResult={error:event.message};return report({ok:false,error:event.message});};
+worker.postMessage({seed:42,density:6,profile:'cube1000',threads});
+</script>

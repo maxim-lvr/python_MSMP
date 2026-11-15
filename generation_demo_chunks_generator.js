@@ -1,4 +1,6 @@
-export const WORLD = { length: 5000, width: 5000, height: 300, chunk: 32 };
+import {mapWorld} from './world_config.js';
+
+export const WORLD = mapWorld(5000);
 export const MIN_GAP = 4;
 export const HOUSE_WALL_COUNT = 30;
 
@@ -47,7 +49,7 @@ export function addExtraZones(layout,types=[...Array(2).fill('bridge_zone'),...A
       const margin=attempt<2000?128:attempt<6000?64:32;
       const x=integer(2,limit-width-2),z=integer(2,limit-depth-2);
       const padding=type==='bridge_zone'?16:80;
-      if(layout.isSolidBox&&!layout.isSolidBox([x*32-padding,0,z*32-padding,width*32+padding*2,300,depth*32+padding*2]))continue;
+      if(layout.isSolidBox&&!layout.isSolidBox([x*32-padding,0,z*32-padding,width*32+padding*2,world.height,depth*32+padding*2]))continue;
       if(zones.some(o=>x<o.x+o.width+MIN_GAP&&x+width+MIN_GAP>o.x&&
         z<o.z+o.depth+MIN_GAP&&z+depth+MIN_GAP>o.z))continue;
       if(reserved.some(b=>x*32<b[0]+b[3]+margin&&(x+width)*32+margin>b[0]&&

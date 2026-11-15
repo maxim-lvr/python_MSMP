@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildTemplates, assembleDemo, overlaps, mergeBoxes, subtract } from '../generation_demo_generator.js';
@@ -33,7 +34,7 @@ for (const seed of [0, 42, 123, 4294967295]) {
   for (const sector of data.sectors) {
     assert.equal(sector.coarse, sector.detail, 'Never replace dense rooms or snake with invented LOD boxes');
     const [x, y, z, w, h, d] = sector.bounds;
-    assert(x >= 0 && y >= 0 && z >= 0 && x + w <= 5000 && z + d <= 5000 && y + h <= 300);
+    assert(x >= 0 && y >= 0 && z >= 0 && x + w <= 5000 && z + d <= 5000 && y + h <= WORLD_HEIGHT);
     const original = templates.find(t => t.type === sector.type);
     assert.equal(sector.buildings, original.buildings);
     assert.equal(h, original.size[1]);

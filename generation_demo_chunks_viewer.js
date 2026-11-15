@@ -1,8 +1,11 @@
 import * as THREE from './web/vendor/three.module.js';
 import { OrbitControls } from './web/vendor/OrbitControls.js';
+import {WORLD_MIN_Y as DEFAULT_MIN_Y, WORLD_MAX_Y as DEFAULT_MAX_Y} from './world_config.js';
 
 const $ = id => document.getElementById(id);
 const noiseMode = document.body.dataset.map === 'noise';
+const cubeTest=noiseMode&&document.body.dataset.profile==='cube1000';
+const WORLD_MIN_Y=cubeTest?0:DEFAULT_MIN_Y,WORLD_MAX_Y=cubeTest?1000:DEFAULT_MAX_Y;
 const mapSize=noiseMode?10000:5000;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xedf0f2);
@@ -20,11 +23,11 @@ const light = new THREE.DirectionalLight(0xffffff, 2);
 light.position.set(-2000, 4000, 1000);
 scene.add(light);
 const ground = new THREE.GridHelper(mapSize, mapSize/100, 0xaebac2, 0xd4dde2);
-ground.position.set(mapSize/2, -1, mapSize/2);
+ground.position.set(mapSize/2, WORLD_MIN_Y-1, mapSize/2);
 scene.add(ground);
 const plane = new THREE.PlaneGeometry(1, 1);
 const cube = new THREE.BoxGeometry(1,1,1);
-const cutPlane = new THREE.Plane(new THREE.Vector3(0,-1,0),300);
+const cutPlane = new THREE.Plane(new THREE.Vector3(0,-1,0),WORLD_MAX_Y);
 renderer.clippingPlanes = [cutPlane];
 const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xa2adb7, transparent: true, opacity: 0.18, depthWrite: false });
 const tunnelMaterial = new THREE.MeshLambertMaterial({ color: 0x7497a3, transparent: true, opacity: 0.3, depthWrite: false });
@@ -47,6 +50,10 @@ const materials = {
   ladder: new THREE.MeshBasicMaterial({color:0xb87736}),
   global_pipe: new THREE.MeshLambertMaterial({color:0x986d4f}),
   global_pipe_band: new THREE.MeshLambertMaterial({color:0x49484a}),
+  pipe_walkway: new THREE.MeshLambertMaterial({color:0x657876}),
+  pipe_access: new THREE.MeshLambertMaterial({color:0x879e94}),
+  pipe_access_frame: new THREE.MeshLambertMaterial({color:0x455e58}),
+  pipe_ladder_support: new THREE.MeshLambertMaterial({color:0x61717c}),
   snake_wall: wallMaterial,
   snake_floor: new THREE.MeshLambertMaterial({color:0x6f8986}),
   snake_facade: new THREE.MeshLambertMaterial({color:0xb0c8c0}),
@@ -66,6 +73,8 @@ const materials = {
 };
 const colors = [0x91b9b2, 0xb5abc9, 0xd3b98c, 0x97b4cd];
 const wideColors = {
+  ultra_dense:{outer_wall:0xa2aaa6,outer_recess:0x7d8881,tower_wall:0x9ba39f,tower_recess:0x7d8781,
+    ground:0x68746b,room_wall:0xbfa4a0,room_floor:0x8e9991},
   open: {tower:0x4e5656,trim:0x69716f,house:0x9aa9a1,roof:0x758b81,deck:0x88928b,
     bridge:0x879b9a,rail:0x434c4c,boundary:0x6f7c78,ground:0x8a9690,window:0x254944,
     pipe:0x986d4f,pipe_band:0x49484a,industrial:0x85877f,suspended:0x777c89,detail_trim:0x575858,detail_pillar:0x5f6668},
@@ -87,6 +96,7 @@ const floorMaterials = colors.map(color => new THREE.MeshBasicMaterial({ color, 
 const lineMaterial = new THREE.LineBasicMaterial({ color: 0x536874, transparent: true, opacity: 0.45 });
 let content = new THREE.Group(), data, flying = false, worker;
 let renderBatches=[];
+let generationRevision=0;
 scene.add(content);
 const keys = new Set();
 
@@ -98,12 +108,18 @@ function overview() {
   $('overview').setAttribute('aria-pressed', 'true');
   $('fly').setAttribute('aria-pressed', 'false');
   const distance = mapSize*.7 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect);
-  camera.position.set(mapSize/2 + distance*0.12, distance*0.88, mapSize/2 + distance*0.47);
-  controls.target.set(mapSize/2, 0, mapSize/2);
+  camera.position.set(mapSize/2 + distance*0.12, WORLD_MIN_Y+distance*0.88+(cubeTest?400:0), mapSize/2 + distance*0.47);
+  controls.target.set(mapSize/2, cubeTest?500:WORLD_MIN_Y, mapSize/2);
   controls.update();
 }
 
 function visit() {
+  if(!data)return;
+  visitLocal();
+  camera.position.y+=WORLD_MIN_Y;
+}
+
+function visitLocal() {
   if(!data)return;
   const [type,idText]=$('zone').value.split(':'), id=Number(idText);
   flying = true;
@@ -112,7 +128,10 @@ function visit() {
   $('overview').setAttribute('aria-pressed', 'false');
   $('fly').setAttribute('aria-pressed', 'true');
   const normals={north:[0,-1],south:[0,1],west:[-1,0],east:[1,0]};
-  if(type==='gallery') {
+  if(type==='pipe_access') {
+    const access=data.globalPipe.accesses[id];
+    camera.position.set(...access.spawn);camera.lookAt(...access.lookAt);
+  } else if(type==='gallery') {
     const b=data.mainGalleries.interiors[id],x=b[0]+b[3]/2,z=b[2]+b[5]/2;
     camera.position.set(x,b[1]+1.6,z);
     camera.lookAt(x+(b[3]>b[5]?20:0),b[1]+1.6,z+(b[3]>b[5]?0:20));
@@ -156,7 +175,20 @@ function visit() {
   }
 }
 
-function show(result) {
+function inspectPipeDoor() {
+  const accesses=data?.globalPipe?.accesses;
+  if(!accesses?.length)return;
+  const selected=$('zone').value.startsWith('pipe_access:')?Number($('zone').value.split(':')[1]):0;
+  const access=accesses[selected]||accesses[0],p=access.pipeDoor,n=access.normal;
+  $('zone').value=`pipe_access:${access.id}`;visit();
+  camera.position.set(p[0]+.5+n[0]*10,p[1]+WORLD_MIN_Y+4+n[1]*10,p[2]+.5+n[2]*10);
+  if(access.pipeAxis===0)camera.position.x+=6;else camera.position.z+=6;
+  camera.lookAt(p[0]+.5,p[1]+WORLD_MIN_Y+1,p[2]+.5);
+}
+
+async function show(result,revision,generationSeconds) {
+  if(revision!==generationRevision)return;
+  const renderStarted=performance.now();let sliceStarted=renderStarted;
   scene.remove(content);
   content.traverse(object => {
     if (object.isLineSegments) object.geometry.dispose();
@@ -166,6 +198,8 @@ function show(result) {
   renderBatches=[];
   scene.add(content);
   data = result;
+  overview();
+  if($('pipe-door'))$('pipe-door').disabled=!data.globalPipe?.accesses?.length;
   const lines = [];
   for(const {box:[x,y,z,sx,sy,sz]} of [...(data.buildingLong||[]),...(data.wideAreas||[]),...(data.settlements||[])]) {
     for(const yy of [y,y+sy])lines.push(x,yy,z,x+sx,yy,z,x+sx,yy,z,x+sx,yy,z+sz,
@@ -177,7 +211,7 @@ function show(result) {
     const floor = new THREE.Mesh(plane, floorMaterials[zone.id % colors.length]);
     floor.rotation.x = -Math.PI/2;
     floor.scale.set(w, d, 1);
-    floor.position.set(x+w/2, 0, z+d/2);
+    floor.position.set(x+w/2, WORLD_MIN_Y, z+d/2);
     content.add(floor);
     for (const [wx, , wz, sx, sy, sz] of zone.walls) lines.push(wx, sy, wz, wx+sx, sy, wz+sz);
     for (let xx = x; xx <= x+w; xx += 32) lines.push(xx, 0.1, z, xx, 0.1, z+d);
@@ -185,6 +219,7 @@ function show(result) {
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+  geometry.translate(0,WORLD_MIN_Y,0);
   content.add(new THREE.LineSegments(geometry, lineMaterial));
   const batches=new Map();
   function add(box) {
@@ -198,6 +233,7 @@ function show(result) {
   for(const zone of data.buildingLong||[])zone.boxes.forEach(add);
   for(const zone of data.settlements||[])zone.boxes.forEach(add);
   for(const box of data.globalPipe?.boxes||[])add(box);
+  for(const box of data.globalPipe?.pedestrianBoxes||[])add(box);
   for(const zone of data.wideAreas||[])for(const box of zone.boxes) {
     if(data.globalPipe?.connectedZones.includes(zone.id)&&['wide_open_pipe','wide_open_pipe_band'].includes(box[6]))continue;
     if(box[6]!=='wide_restrict_ladder'){add(box);continue;}
@@ -207,69 +243,108 @@ function show(result) {
       add(zone.rotation?[x+0.87,y+dy,z+dx,0.12,sy,sx,kind]:[x+dx,y+dy,z+0.01,sx,sy,0.12,kind]);
   }
   for(const p of data.ports)if(p.buildingLong===undefined)add([...p.door,1,2,1,'orange']);
-  for(const [x,y,z,,height] of data.ladderBoxes) {
+  for(const [x,y,z,,height] of [...data.ladderBoxes,...(data.globalPipe?.pedestrianLadders||[])]) {
     add([x+0.15,y,z+0.88,0.1,height,0.1,'ladder']);
     add([x+0.75,y,z+0.88,0.1,height,0.1,'ladder']);
     for(let dy=0;dy<height;dy++)add([x+0.15,y+dy+0.4,z+0.85,0.7,0.12,0.12,'ladder']);
   }
   const matrix=new THREE.Matrix4();
+  let built=0;
   for(const boxes of batches.values()) {
     const mesh=new THREE.InstancedMesh(cube,materials[boxes[0][6]]||materials.house,boxes.length);
+    let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
     boxes.forEach(([x,y,z,sx,sy,sz],i)=>{
-      matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,y+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);
+      const yy=WORLD_MIN_Y+y;
+      matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,yy+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);
+      minX=Math.min(minX,x);minY=Math.min(minY,yy);minZ=Math.min(minZ,z);
+      maxX=Math.max(maxX,x+sx);maxY=Math.max(maxY,yy+sy);maxZ=Math.max(maxZ,z+sz);
     });
-    mesh.instanceMatrix.needsUpdate=true;mesh.computeBoundingSphere();mesh.computeBoundingBox();
+    mesh.instanceMatrix.needsUpdate=true;
+    mesh.boundingBox=new THREE.Box3(new THREE.Vector3(minX,minY,minZ),new THREE.Vector3(maxX,maxY,maxZ));
+    mesh.boundingSphere=mesh.boundingBox.getBoundingSphere(new THREE.Sphere());
     content.add(mesh);renderBatches.push(mesh);
+    built++;
+    if(performance.now()-sliceStarted>12) {
+      $('stats').textContent=`Affichage de la map : ${Math.round(built/batches.size*100)} %`;
+      await new Promise(requestAnimationFrame);if(revision!==generationRevision)return;sliceStarted=performance.now();
+    }
   }
   $('zone').replaceChildren();
   for(const [label,values] of [
-    ['House tunnel snake',(data.snakes||[]).map(s=>new Option(`Snake ${s.id+1} · ${s.length} blocs · Y ${s.y}`,`snake:${s.id}`))],
+    ['House tunnel snake',(data.snakes||[]).map(s=>new Option(`Snake ${s.id+1} · ${s.length} blocs · Y ${s.y+WORLD_MIN_Y}`,`snake:${s.id}`))],
     ['House Wall 64 x 64',data.zones.filter(z=>z.type==='house_wall').map((z,i)=>new Option(`House Wall ${i+1} · 64 x 64`, `zone:${z.id}`))],
     ['Bridges',data.zones.filter(z=>z.type==='bridge_zone').map((z,i)=>new Option(`Bridges ${i+1} · ${z.width*32} x ${z.depth*32}`, `zone:${z.id}`))],
     ['Cavites',data.zones.filter(z=>!z.type).map(z=>new Option(`Zone ${z.id+1} · ${z.width*32} x ${z.depth*32}`,`zone:${z.id}`))],
-    ['Building Long',(data.buildingLong||[]).map(z=>new Option(`Building Long ${z.id+1} · ${z.length} blocs · Y ${z.box[1]}`,`long:${z.id}`))],
-    ['Wide Open Area',(data.wideAreas||[]).filter(z=>z.type==='open').map(z=>new Option(`Wide Open ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
-    ['Wide Restrict Area',(data.wideAreas||[]).filter(z=>z.type==='restrict').map(z=>new Option(`Wide Restrict ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]}`,`wide:${z.id}`))],
-    ['Water Rooms',(data.settlements||[]).filter(z=>z.type==='water').map(z=>new Option(`Water Room ${z.index+1} · Y ${z.box[1]}`,`settlement:${z.id}`))],
-    ['Villager Cities',(data.settlements||[]).filter(z=>z.type==='village').map(z=>new Option(`Village ${z.index+1} · Y ${z.box[1]}`,`settlement:${z.id}`))],
-    ['Reseau de tuyaux',(data.globalPipe?.visits||[]).map((v,i)=>new Option(`${v.label} · Y ${v.pos[1]}`,`pipe:${i}`))],
+    ['Building Long',(data.buildingLong||[]).map(z=>new Option(`Building Long ${z.id+1} · ${z.length} blocs · Y ${z.box[1]+WORLD_MIN_Y}`,`long:${z.id}`))],
+    ['Wide Open Area',(data.wideAreas||[]).filter(z=>z.type==='open').map(z=>new Option(`Wide Open ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]+WORLD_MIN_Y}`,`wide:${z.id}`))],
+    ['Wide Restrict Area',(data.wideAreas||[]).filter(z=>z.type==='restrict').map(z=>new Option(`Wide Restrict ${z.index+1} · ${z.box[3]} x ${z.box[5]} · Y ${z.box[1]+WORLD_MIN_Y}`,`wide:${z.id}`))],
+    ['House Wall ultra dense',(data.wideAreas||[]).filter(z=>z.type==='ultra_dense').map(z=>
+      new Option(`House Wall ultra dense ${z.index+1} · Y ${z.box[1]+WORLD_MIN_Y}`,`wide:${z.id}`))],
+    ['Water Rooms',(data.settlements||[]).filter(z=>z.type==='water').map(z=>new Option(`Water Room ${z.index+1} · Y ${z.box[1]+WORLD_MIN_Y}`,`settlement:${z.id}`))],
+    ['Villager Cities',(data.settlements||[]).filter(z=>z.type==='village').map(z=>new Option(`Village ${z.index+1} · Y ${z.box[1]+WORLD_MIN_Y}`,`settlement:${z.id}`))],
+    ['Reseau de tuyaux',(data.globalPipe?.visits||[]).map((v,i)=>new Option(`${v.label} · Y ${v.pos[1]+WORLD_MIN_Y}`,`pipe:${i}`))],
+    ['Acces des tuyaux vers la map',(data.globalPipe?.accesses||[]).map(a=>
+      new Option(`${a.type==='ceiling'?'Echelle':'Porte'} ${a.id+1} · ${a.target.kind==='room'?'Piece':a.target.kind==='house'?'Maison':'Tunnel'} ${a.target.id+1} · Y ${a.pipeDoor[1]+WORLD_MIN_Y}`,`pipe_access:${a.id}`))],
     ['Galeries principales',(data.mainGalleries?.interiors||[]).map((b,i)=>({b,i})).filter(({b})=>Math.max(b[3],b[5])>=12).slice(0,60)
-      .map(({b,i},n)=>new Option(`Galerie ${n+1} · Y ${b[1]}`,`gallery:${i}`))],
-    ['Pieces denses',data.denseRooms.map(r=>new Option(`Dense ${r.id+1} · Y ${r.box[1]}`,`room:${r.id}`))],
+      .map(({b,i},n)=>new Option(`Galerie ${n+1} · Y ${b[1]+WORLD_MIN_Y}`,`gallery:${i}`))],
+    ['Pieces denses',data.denseRooms.map(r=>new Option(`Dense ${r.id+1} · Y ${r.box[1]+WORLD_MIN_Y}`,`room:${r.id}`))],
     ['Acces Building Long',data.ports.filter(p=>p.buildingLong!==undefined).map(p=>new Option(`Building Long ${p.buildingLong+1} · ${p.end==='start'?'debut':'fin'} · chemin ${p.trail+1}`,`door:${p.id}`))],
     ['Acces villages',data.ports.filter(p=>p.village!==undefined).map(p=>new Option(`Village ${data.settlements[p.village].index+1} · ${p.side}`,`door:${p.id}`))],
-    ['Portes orange',data.ports.filter(p=>p.buildingLong===undefined&&p.village===undefined).map(p=>new Option(`Porte ${p.id+1} · ${p.snake===undefined?`Zone ${p.zone+1}`:`Snake ${p.snake+1}`}`,`door:${p.id}`))],
+    ['Acces House Wall ultra dense',data.ports.filter(p=>p.ultraDense!==undefined).map(p=>new Option(`House Wall ultra dense ${data.wideAreas.find(z=>z.id===p.ultraDense).index+1} · ${p.side} · Y ${p.door[1]+WORLD_MIN_Y}`,`door:${p.id}`))],
+    ['Portes orange',data.ports.filter(p=>p.buildingLong===undefined&&p.village===undefined&&p.ultraDense===undefined).map(p=>new Option(`Porte ${p.id+1} · ${p.snake===undefined?`Zone ${p.zone+1}`:`Snake ${p.snake+1}`}`,`door:${p.id}`))],
   ]) {
     const group=document.createElement('optgroup');group.label=label;group.append(...values);$('zone').append(group);
   }
   const s=data.stats;
   $('stats').textContent = `${data.zones.length} zones · ${(data.wideAreas||[]).filter(z=>z.type==='open').length} Wide Open · ${(data.wideAreas||[]).filter(z=>z.type==='restrict').length} Wide Restrict · ${(data.snakes||[]).length} snakes · ${(data.buildingLong||[]).length} Building Long (${s.buildingConnections} acces) · ${s.wallHouses} maisons · ${s.connectedDense}/${s.denseRooms} denses reliees · ${s.connectedDoors}/${s.orangeDoors} portes reliees`;
   if(data.globalPipe)$('stats').textContent+=` · tuyaux ${data.globalPipe.length} blocs · ${data.globalPipe.branches.length} branches · ${data.globalPipe.connectedZones.length} Wide Open raccordes`;
+  if(data.globalPipe?.accesses)$('stats').textContent+=` · ${s.pipeAccesses} acces vers la map (${s.pipeAccessSectors} secteurs)`;
+  const ultraDense=(data.wideAreas||[]).filter(z=>z.type==='ultra_dense');
+  if(ultraDense.length)$('stats').textContent+=` · ${ultraDense.length} House Wall ultra dense (${ultraDense.reduce((n,z)=>n+z.stats.houses,0)} pieces, ${s.ultraDenseConnections||0} acces)`;
   $('stats').textContent=`${data.zones.filter(z=>z.type==='house_wall').length} House Wall 64 x 64 · ${data.zones.filter(z=>z.type==='bridge_zone').length} Bridges · `+$('stats').textContent;
   if(data.settlements?.length)$('stats').textContent+=` · ${data.settlements.filter(z=>z.type==='water').length} Water Rooms · ${data.settlements.filter(z=>z.type==='village').length} Villager Cities (${s.villageConnections||0} acces)`;
-  if(data.noise?.full)$('stats').textContent+=` · Noise ${data.world.length} x ${data.world.width} · ${data.noise.components} secteurs · ${data.noise.seconds.toFixed(1)} s`;
+  if(data.noise?.full)$('stats').textContent+=` · Noise ${data.world.length} x ${data.world.width} · ${data.noise.components} secteurs`;
   else if(data.noise)$('stats').textContent=`${data.world.length} x ${data.world.width} x ${data.world.height} · ${s.denseRooms} pieces reliees aux galeries · ${data.noise.components} secteurs · ${data.noise.seconds.toFixed(1)} s`;
+  $('stats').textContent+=` · Y ${WORLD_MIN_Y} a ${WORLD_MAX_Y} (${data.world.height} blocs)`;
+  const displaySeconds=(performance.now()-renderStarted)/1000;
+  if($('loading')) {
+    const reused=result.loading?.reusedMap?'carte reutilisee':
+      `${result.loading?.stages.filter(s=>s.hit).length||0} etapes reutilisees`;
+    $('loading').textContent=`Chargement ${generationSeconds.toFixed(1)} s · affichage ${displaySeconds.toFixed(1)} s · ${reused}${result.loading?.reusedMap?'':` · ${result.loading?.workers||1} workers`}`;
+    $('loading').dataset.profile=JSON.stringify({generationSeconds,displaySeconds,...result.loading});
+  }
+  console.info('Map loading', {generationSeconds,displaySeconds,...result.loading});
   overview();
 }
 
-function generate() {
+function generate(force=false,retries=0) {
   if(!$('settings').reportValidity())return;
+  const revision=++generationRevision,started=performance.now();
   worker?.terminate();
+  if($('loading')){$('loading').textContent='';delete $('loading').dataset.profile;}
   $('stats').textContent='Generation des maisons et connexions...';
   const seed=Number($('seed').value), density=Number($('count').value);
-  worker=new Worker(noiseMode?'./generation_noise_worker.js':'./generation_demo_chunks_worker.js',{type:'module'});
+  worker=new Worker(noiseMode?'./generation_noise_worker.js?v=staged-cache-v1':'./generation_demo_chunks_worker.js?v=staged-cache-v1',{type:'module'});
   const current=worker;
-  worker.onmessage=({data:message})=>{
+  worker.onmessage=async({data:message})=>{
     if(current!==worker)return;
     if(message.progress){$('stats').textContent=message.progress;return;}
+    if(message.stale){
+      current.terminate();
+      if(retries<2)generate(force,retries+1);
+      else $('stats').textContent='Les regles ont change pendant le calcul. Relance la generation.';
+      return;
+    }
     if(message.error)$('stats').textContent=`Generation impossible : ${message.error}`;
-    else show(message.result);
     current.terminate();
+    if(!message.error)try{await show(message.result,revision,(performance.now()-started)/1000);}
+      catch(error){if(revision===generationRevision)$('stats').textContent=`Affichage impossible : ${error.message}`;console.error(error);}
   };
   worker.onerror=event=>{
+    if(current!==worker)return;
     $('stats').textContent=`Erreur de generation : ${event.message}`;current.terminate();
   };
-  worker.postMessage({seed,density});
+  worker.postMessage({seed,density,force,threads:Number($('threads')?.value||4),profile:cubeTest?'cube1000':undefined});
 }
 
 function resize() {
@@ -280,9 +355,11 @@ function resize() {
 }
 addEventListener('resize', resize);
 $('settings').onsubmit = event => { event.preventDefault(); generate(); };
+if($('rebuild'))$('rebuild').onclick=()=>generate(true);
 $('random').onclick = () => { $('seed').value = crypto.getRandomValues(new Uint32Array(1))[0]; generate(); };
 $('overview').onclick = overview;
 $('fly').onclick = visit;
+if($('pipe-door'))$('pipe-door').onclick=inspectPipeDoor;
 $('zone').onchange = visit;
 $('inspection').onchange=()=>{
   const active=$('inspection').checked;

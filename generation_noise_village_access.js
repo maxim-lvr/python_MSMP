@@ -31,6 +31,8 @@ export function connectVillageToWalls(area,mask,layout,occupied,settlements) {
         if([...occupied,...area.boxes,...volumes].some(b=>overlaps(volume,b)))continue;
         const door=[...wall,1,3,1];door[1]++;door[lateral+3]=2;
         const houseDoor=[...door];houseDoor[axis]=facade;
+        const interior=[...houseDoor];interior[axis]-=sign;
+        if(area.boxes.some(b=>overlaps(interior,b)))continue;
         const normal=[0,0,0];normal[axis]=sign;
         const port={village:area.id,side:sign<0?'first':'second',house:house.id,
           pos:door.slice(0,3),normal,door,houseDoor,deck,volume};

@@ -3,7 +3,7 @@ import * as THREE from './vendor/three.module.js';
 const WORLD_SCALE = 16;
 const WORLD_MIN_Y = -64;
 const WORLD_MAX_Y = 320;
-const GENERATION_MAX_Y = 300;
+const GENERATION_MAX_Y = WORLD_MAX_Y;
 const GENERATION_HEIGHT_BLOCKS = GENERATION_MAX_Y - WORLD_MIN_Y;
 
 const WORLD = {
@@ -18,7 +18,7 @@ const RENDER_WORLD = {
 };
 const MAP_BOUNDS = {
   x: [-RENDER_WORLD.width / 2, RENDER_WORLD.width / 2],
-  y: [0, RENDER_WORLD.height],
+  y: [WORLD_MIN_Y, WORLD_MAX_Y],
   z: [-RENDER_WORLD.depth / 2, RENDER_WORLD.depth / 2],
 };
 const CHUNK_SIZE = 4;
@@ -76,7 +76,7 @@ scene.background = new THREE.Color(0xf2f7fb);
 scene.fog = new THREE.Fog(0xf2f7fb, 360 * WORLD_SCALE, 1050 * WORLD_SCALE);
 
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 1800 * WORLD_SCALE);
-camera.position.set(-95 * WORLD_SCALE, 12 * WORLD_SCALE, -145 * WORLD_SCALE);
+camera.position.set(-95 * WORLD_SCALE, WORLD_MIN_Y + 12 * WORLD_SCALE, -145 * WORLD_SCALE);
 camera.rotation.order = 'YXZ';
 camera.rotation.x = -0.22;
 
@@ -97,7 +97,7 @@ const floor = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32 }),
 );
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.03;
+floor.position.y = WORLD_MIN_Y - 0.03;
 scene.add(floor);
 
 const chunkGroups = new Map();
@@ -1217,7 +1217,7 @@ function buildInstancedChunks() {
   }
 
   const helper = new THREE.GridHelper(RENDER_WORLD.width, 60, 0x8aa0b8, 0xd3dde8);
-  helper.position.y = -0.01;
+  helper.position.y = WORLD_MIN_Y - 0.01;
   scene.add(helper);
 
   const texture = new THREE.Texture(noiseMap.image);
@@ -1233,7 +1233,7 @@ function buildInstancedChunks() {
     }),
   );
   preview.rotation.x = -Math.PI / 2;
-  preview.position.y = 0.02;
+  preview.position.y = WORLD_MIN_Y + 0.02;
   scene.add(preview);
   return {
     total: Math.round(total),
@@ -1297,7 +1297,7 @@ function addInstancedBlocks(key, geometry, material, blocks) {
     tmpMatrix.compose(
       new THREE.Vector3(
         (block.cx ?? block.x + block.sx / 2) * WORLD_SCALE,
-        (block.cy ?? block.y + block.sy / 2) * WORLD_SCALE,
+        WORLD_MIN_Y + (block.cy ?? block.y + block.sy / 2) * WORLD_SCALE,
         (block.cz ?? block.z + block.sz / 2) * WORLD_SCALE,
       ),
       tmpQuaternion,
@@ -1311,7 +1311,7 @@ function addInstancedBlocks(key, geometry, material, blocks) {
 
 function addMapHelpers() {
   const helper = new THREE.GridHelper(RENDER_WORLD.width, 60, 0x8aa0b8, 0xd3dde8);
-  helper.position.y = -0.01;
+  helper.position.y = WORLD_MIN_Y - 0.01;
   scene.add(helper);
 
   const texture = new THREE.Texture(noiseMap.image);
@@ -1327,7 +1327,7 @@ function addMapHelpers() {
     }),
   );
   preview.rotation.x = -Math.PI / 2;
-  preview.position.y = 0.02;
+  preview.position.y = WORLD_MIN_Y + 0.02;
   scene.add(preview);
 }
 

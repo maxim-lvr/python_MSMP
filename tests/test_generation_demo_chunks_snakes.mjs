@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import { generateChunks } from '../generation_demo_chunks_generator.js';
 import { generateDemoSnakes } from '../generation_demo_chunks_snakes.js';
@@ -15,12 +16,12 @@ for(const seed of [42,0,27195957]) {
     assert.ok(s.route.points.length>4);
     for(const b of s.boxes) {
       assert.ok(b.slice(0,6).every(Number.isInteger));
-      assert.ok(b[0]>=0&&b[2]>=0&&b[1]>=0&&b[0]+b[3]<=5000&&b[2]+b[5]<=5000&&b[1]+b[4]<=300);
+      assert.ok(b[0]>=0&&b[2]>=0&&b[1]>=0&&b[0]+b[3]<=5000&&b[2]+b[5]<=5000&&b[1]+b[4]<=WORLD_HEIGHT);
     }
     for(let i=0;i<s.volumes.length;i++) {
       const b=s.volumes[i];
       assert.ok(!s.volumes.slice(i+2).some(v=>overlaps(b,v)));
-      assert.ok(!layout.zones.some(z=>overlaps(b,[z.x*32,0,z.z*32,z.width*32,300,z.depth*32])));
+      assert.ok(!layout.zones.some(z=>overlaps(b,[z.x*32,0,z.z*32,z.width*32,WORLD_HEIGHT,z.depth*32])));
       assert.ok(!snakes.filter(t=>t.id!==s.id).some(t=>t.volumes.some(v=>overlaps(b,v))));
     }
   }

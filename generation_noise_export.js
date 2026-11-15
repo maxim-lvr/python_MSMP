@@ -1,5 +1,6 @@
 import {excavatedRuns} from './generation_demo_chunks_export.js';
-import {pipeNetworkSegments} from './generation_demo_chunks_pipe.js';
+import {pipeBoreBoxes} from './generation_demo_chunks_pipe.js';
+import {worldRun} from './world_config.js';
 
 const AIR='minecraft:air', ROCK='minecraft:deepslate';
 const operation=(box,kind,block=ROCK)=>({kind,block,pos:box.slice(0,3),size:box.slice(3,6)});
@@ -13,24 +14,14 @@ export function clipRun(run,bounds) {
 }
 
 function* pipeAir(paths) {
-  for(const {a,axis,lo,hi} of pipeNetworkSegments(paths)) {
-    const cross=[0,1,2].filter(i=>i!==axis);
-    for(let u=-4;u<=4;u++)for(let v=-4;v<=4;v++)if(u*u+v*v<=16) {
-      const p=[...a],size=[1,1,1];p[axis]=lo;p[cross[0]]+=u;p[cross[1]]+=v;size[axis]=hi-lo+1;
-      yield operation([...p,...size],'air_pipe',AIR);
-    }
-  }
-  // Elbow meshes use rounded bores at the joint, not just two truncated cylinders.
-  const joints=new Map();
-  for(const path of paths)for(const p of path.slice(1,-1))joints.set(p.join(','),p);
-  for(const p of joints.values())for(let y=-4;y<=4;y++)for(let z=-4;z<=4;z++) {
-    if(y*y+z*z>16)continue;
-    const x=Math.floor(Math.sqrt(16-y*y-z*z));
-    yield operation([p[0]-x,p[1]+y,p[2]+z,x*2+1,1,1],'air_pipe',AIR);
-  }
+  for(const box of pipeBoreBoxes(paths))yield operation(box,'air_pipe',AIR);
 }
 
 export function* noiseMinecraftRuns(data,mask,walls) {
+  for(const run of localNoiseMinecraftRuns(data,mask,walls))yield worldRun(run,data.world);
+}
+
+function* localNoiseMinecraftRuns(data,mask,walls) {
   if(!(data.air instanceof Set))throw Error('Missing excavated network air');
   const air=(b,kind)=>operation(b,kind,AIR), ladders=[];
   for(const b of mask.voidBoxes)yield air(b,'air_noise');
@@ -58,7 +49,12 @@ export function* noiseMinecraftRuns(data,mask,walls) {
   for(const b of data.globalPipe.boxes)yield operation(b,b[6]);
   yield* excavatedRuns(data.air,data.world);
   yield* pipeAir(data.globalPipe.paths);
+  // Open side doors and ceiling shafts into map destinations, then restore floors and backing.
+  for(const b of data.globalPipe.accessAir||[])yield air(b,'air_pipe_access');
+  for(const b of data.globalPipe.pedestrianBoxes||[])yield operation(b,b[6]);
   for(const b of data.ladderBoxes)if(b[4]>0)
     yield operation(b,'ladder','minecraft:ladder[facing=north]');
+  for(const b of data.globalPipe.pedestrianLadders||[])if(b[4]>0)
+    yield operation(b,'pipe_ladder','minecraft:ladder[facing=north]');
   yield* ladders;
 }

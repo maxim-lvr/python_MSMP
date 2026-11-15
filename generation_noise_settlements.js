@@ -13,7 +13,7 @@ export function placeNoiseSettlements(layout,mask) {
     state=(Math.imul(state,1664525)+1013904223)>>>0;
     return a+Math.floor(state/4294967296*(b-a+1));
   };
-  const occupied=[...layout.zones.map(z=>[z.x*32-80,0,z.z*32-80,z.width*32+160,300,z.depth*32+160]),
+  const occupied=[...layout.zones.map(z=>[z.x*32-80,0,z.z*32-80,z.width*32+160,layout.world.height,z.depth*32+160]),
     ...(layout.buildingLong||[]).map(z=>padded(z.box,64)),
     ...(layout.wideAreas||[]).map(z=>padded(z.box,32)),
     ...(layout.snakes||[]).flatMap(s=>s.volumes.map(b=>padded(b,32)))];
@@ -33,7 +33,7 @@ export function placeNoiseSettlements(layout,mask) {
     }
     return ends;
   };
-  for(const [type,count,size] of [['water',WATER_ROOM_COUNT,WATER_ROOM_AREA],['village',VILLAGER_CITY_COUNT,VILLAGER_CITY_AREA]]) {
+  for(const [type,count,size] of [['water',layout.buildCounts?.water??WATER_ROOM_COUNT,WATER_ROOM_AREA],['village',layout.buildCounts?.villages??VILLAGER_CITY_COUNT,VILLAGER_CITY_AREA]]) {
     for(let index=0;index<count;index++) {
       let area;
       for(let attempt=0;attempt<60000;attempt++) {
@@ -45,7 +45,7 @@ export function placeNoiseSettlements(layout,mask) {
         if(occupied.some(b=>overlaps(padded(box,16),b)))continue;
         // Spread sites across the map, not fifty vertically stacked copies in one fissure.
         if(result.some(a=>a.type===type&&overlaps(
-          [x-128,0,z-128,sx+256,300,sz+256],a.box)))continue;
+          [x-128,0,z-128,sx+256,layout.world.height,sz+256],a.box)))continue;
         const walls=type==='village'?faultWalls(box,rotation):null;
         if(type==='village'&&!walls)continue;
         area=populateNoiseSettlement({id:result.length,index,type,seed:integer(0,0xffffffff),rotation,box,size,faultWalls:walls});

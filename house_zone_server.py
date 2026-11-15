@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -17,14 +18,30 @@ from map_builde_dense_1 import (
 )
 from map_builder_house import DEFAULT_OUT as HOUSE_DEFAULT_OUT, build_payload as build_house_payload
 from generation_demo_chunks_templates import wall_templates, building_long_template
+from generation_cache_manifest import generation_manifest
+from generation_model_cache import model_file, SourcesChanged
 
 
 DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
 
 
 class HouseZoneHandler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        if urlparse(self.path).path.endswith((".html", ".js", ".mjs")):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/generation-manifest":
+            try:
+                mode = parse_qs(parsed.query).get("mode", ["noise"])[0]
+                payload = generation_manifest(mode)
+            except ValueError:
+                self.send_error(400, "Invalid generation mode")
+                return
+            self.send_json(payload)
+            return
         if parsed.path == "/api/demo-building-long":
             try:
                 params = parse_qs(parsed.query)
@@ -35,17 +52,18 @@ class HouseZoneHandler(SimpleHTTPRequestHandler):
             except ValueError:
                 self.send_error(400, "Invalid Building Long settings")
                 return
-            self.send_json(building_long_template(seed, length))
+            self.send_model("building", seed, length, params)
             return
         if parsed.path == "/api/demo-chunks-templates":
             try:
-                seed = int(parse_qs(parsed.query).get("seed", ["42"])[0])
+                params = parse_qs(parsed.query)
+                seed = int(params.get("seed", ["42"])[0])
                 if not 0 <= seed <= 0xFFFFFFFF:
                     raise ValueError("seed")
             except ValueError:
                 self.send_error(400, "Invalid seed")
                 return
-            self.send_json(wall_templates(seed))
+            self.send_model("walls", seed, None, params)
             return
         if parsed.path == "/api/house-zone":
             self.send_house_zone(parsed.query)
@@ -54,6 +72,21 @@ class HouseZoneHandler(SimpleHTTPRequestHandler):
             self.send_dense_1(parsed.query)
             return
         super().do_GET()
+
+    def send_model(self, kind: str, seed: int, length: int | None, params: dict) -> None:
+        try:
+            path = model_file(kind, seed, length, expected=params.get("revision", [None])[0],
+                              force=params.get("refresh", ["0"])[0] == "1")
+        except SourcesChanged:
+            self.send_error(409, "Generation sources changed; retry with a new manifest")
+            return
+        with path.open("rb") as source:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(path.stat().st_size))
+            self.end_headers()
+            shutil.copyfileobj(source, self.wfile)
 
     def send_house_zone(self, query: str) -> None:
         params = parse_qs(query)

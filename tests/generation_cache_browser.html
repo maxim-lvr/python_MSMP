@@ -1,0 +1,37 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><title>Generation cache tests</title><body>
+<pre id="result">Tests en cours...</pre>
+<script type="module">
+import {openGenerationStore,GenerationCache,generationKeys} from '../generation_cache.js';
+const assert=(value,message)=>{if(!value)throw Error(message);};
+try {
+  const store=await openGenerationStore();assert(store,'IndexedDB unavailable');
+  await store.write('browser-test:raw','key',{walls:['closed']},'unvalidated');
+  assert(await store.read('browser-test:raw','key')===undefined,'Pending data became readable');
+  await store.commit('unvalidated');
+  const first=await store.read('browser-test:raw','key');first.walls[0]='changed';
+  assert((await store.read('browser-test:raw','key')).walls[0]==='closed','Stored geometry mutated');
+  await store.abort('unvalidated');
+  assert(await store.read('browser-test:raw','key')===undefined,'Aborted session remained readable');
+  const manifest={mode:'browser-test',schema:1,stages:[
+    {id:'base',revision:'base-v1',parents:[],parameters:['seed']},
+    {id:'final',revision:'final-v1',parents:['base'],parameters:[]},
+  ]};
+  const calls={base:0,final:0},builders={
+    base:{compute(){calls.base++;return {walls:['wall']};}},
+    final:{compute({base}){calls.final++;base.walls[0]='door';return base;}},
+  };
+  async function run(revision,force=false){
+    const cache=new GenerationCache(revision,await generationKeys(revision,{seed:42}),store,{force});
+    const result=await cache.get('final',builders);await cache.commit();return {cache,result};
+  }
+  await run(manifest,true);const warm=await run(manifest);
+  assert(calls.base===1&&calls.final===1,'Warm generation executed builders');
+  assert(warm.result.walls[0]==='door','Warm geometry differs');
+  const changed=structuredClone(manifest);changed.stages[1].revision='final-v2';
+  const partial=await run(changed);
+  assert(calls.base===1&&calls.final===2,'Invalidation did not stay downstream');
+  assert((await store.read('browser-test:base',partial.cache.keys.base)).walls[0]==='wall','Base was carved in storage');
+  await run(changed,true);assert(calls.base===2&&calls.final===3,'Force rebuild did not bypass cache');
+  store.close();document.getElementById('result').textContent=JSON.stringify({ok:true,calls});
+}catch(error){document.getElementById('result').textContent=JSON.stringify({ok:false,error:error.stack});}
+</script></body></html>

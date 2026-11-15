@@ -11,7 +11,7 @@ export function generateNoiseMap(seed,image,density=2,progress=()=>{}) {
   const n=Math.floor(world.length/32),blocked=new Uint8Array(n*n),seen=new Uint8Array(n*n),groups=[];
   const center=id=>[id%n*32+16,Math.floor(id/n)*32+16];
   for(let id=0;id<blocked.length;id++) {
-    const [x,z]=center(id);blocked[id]=mask.isSolid([x-20,0,z-20,40,300,40])?0:1;
+    const [x,z]=center(id);blocked[id]=mask.isSolid([x-20,0,z-20,40,world.height,40])?0:1;
   }
   const neighbors=id=>{
     const x=id%n,z=Math.floor(id/n);
@@ -47,7 +47,7 @@ export function generateNoiseMap(seed,image,density=2,progress=()=>{}) {
     const count=Math.min(group.length,Math.max(2,Math.min(24,Math.ceil(group.length/160))));
     while(terminals.size<count)terminals.add(index(group[integer(0,group.length-1)]));
     const network=localTunnelNetwork(size,local,[...terminals],integer(0,0xffffffff));
-    const heights=new Map([[network.order[0],integer(16,266)]]),directions=new Map([[network.order[0],1]]);
+    const heights=new Map([[network.order[0],integer(16,world.height-34)]]),directions=new Map([[network.order[0],1]]);
     const p=id=>[(id%size+minX)*32+16,(Math.floor(id/size)+minZ)*32+16];
     if(group.length===1) {
       const a=p(0),y=heights.get(0);corridor([a[0]-10,a[1]],[a[0]+10,a[1]],y,y);
@@ -55,7 +55,7 @@ export function generateNoiseMap(seed,image,density=2,progress=()=>{}) {
     for(const node of network.order.slice(1)) {
       const parent=network.parents[node],previous=heights.get(parent);
       let direction=directions.get(parent);if(integer(0,19)===0)direction=-direction;
-      if(previous<18)direction=1;if(previous>264)direction=-1;
+      if(previous<18)direction=1;if(previous>world.height-36)direction=-1;
       const y=previous+direction*integer(1,3);heights.set(node,y);directions.set(node,direction);
       corridor(p(parent),p(node),previous,y);
     }

@@ -22,7 +22,7 @@ function spatial(boxes) {
 
 export function prepareGalleries(layout,houses,shafts,routes) {
   const obstacles=spatial([...houses.map(h=>h.box),
-    ...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]),
+    ...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,layout.world.height,z.depth*32]),
     ...(layout.snakes||[]).flatMap(s=>s.volumes),...(layout.buildingLong||[]).map(z=>z.box),
     ...(layout.wideAreas||[]).map(z=>z.box),...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])]),
     ...(layout.globalPipe?.volumes||[])]);

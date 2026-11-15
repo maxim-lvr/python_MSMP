@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { generateChunks } from '../generation_demo_chunks_generator.js';
@@ -88,14 +89,14 @@ for(const seed of densityTest?[seedOption?Number(seedOption.split('=')[1]):42]:[
       const b=room.box,id=`${Math.floor(b[0]/128)},${Math.floor(b[2]/128)}`;
       sectors.set(id,(sectors.get(id)||0)+1);
       assert.ok(b[3]>=5&&b[3]<=30&&b[5]>=5&&b[5]<=30);
-      assert.ok(b[1]+b[4]<=300);
+      assert.ok(b[1]+b[4]<=WORLD_HEIGHT);
     }
     assert.ok(new Set(d.denseRooms.map(r=>r.box[1])).size>100);
     assert.ok(new Set(d.denseRooms.map(r=>r.box[0]%32)).size>25);
-    const heightBands=Array(6).fill(0);
+    const heightBands=Array(Math.ceil(WORLD_HEIGHT/50)).fill(0);
     for(const room of d.denseRooms)heightBands[Math.floor(room.box[1]/50)]++;
     assert.ok(sectors.size>800,`Horizontal sectors: ${sectors.size}; height distribution: ${heightBands}`);
-    assert.ok(heightBands.every(n=>n>d.denseRooms.length*0.08),`Height distribution: ${heightBands}`);
+    assert.ok(heightBands.every((n,i)=>n>d.denseRooms.length*0.48*Math.min(50,WORLD_HEIGHT-i*50)/WORLD_HEIGHT),`Height distribution: ${heightBands}`);
     assert.ok(d.denseRooms.some(r=>r.box[1]<12));
     assert.ok(d.denseRooms.some(r=>r.box[1]+r.box[4]>288));
     const reached=new Set();
@@ -121,7 +122,7 @@ for(const seed of densityTest?[seedOption?Number(seedOption.split('=')[1]):42]:[
     assert.ok(d.houses.some(h=>h.zone===z.id&&h.side===side));
   for(const group of d.wallGroups)for(const b of [...group.boxes,...group.walls]) {
     assert.ok(b.slice(0,6).every(Number.isInteger));
-    assert.ok(b[0]>=0&&b[1]>=0&&b[2]>=0&&b[0]+b[3]<=5000&&b[1]+b[4]<=300&&b[2]+b[5]<=5000);
+    assert.ok(b[0]>=0&&b[1]>=0&&b[2]>=0&&b[0]+b[3]<=5000&&b[1]+b[4]<=WORLD_HEIGHT&&b[2]+b[5]<=5000);
     // Orange markers have really been removed from the solid house shell.
     for(const p of d.ports.filter(p=>p.zone===group.zone)) assert.ok(!contains(b,...p.door));
   }

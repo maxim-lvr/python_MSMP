@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {generateMegastructure} from '../generation_megastructure.js';
 import {overlaps} from '../generation_demo_generator.js';
@@ -7,7 +8,7 @@ const json=async url=>{const r=await fetch('http://127.0.0.1:5173'+url);assert(r
 const templates=await json(`/api/demo-chunks-templates?seed=${seed}`),models=[];
 for(const i of [0,1])models.push(await json(`/api/demo-building-long?seed=${(seed+i)>>>0}&length=960`));
 const data=generateMegastructure(seed,templates,models,console.log,Number(process.env.DENSITY||3));
-const limits=[5000,300,5000];
+const limits=[5000,WORLD_HEIGHT,5000];
 for(const b of data.boxes)assert(b.slice(0,6).every((n,i)=>Number.isInteger(n)&&
   (i<3?n>=0:n>0&&n+b[i-3]<=limits[i-3])),`Bad box ${b}`);
 for(let i=0;i<data.rooms.length;i++)for(let j=0;j<i;j++)

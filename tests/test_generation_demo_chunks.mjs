@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import { generateChunks, WORLD, MIN_GAP } from '../generation_demo_chunks_generator.js';
 
@@ -15,7 +16,7 @@ for (const seed of [0, 1, 42, 1234, 4294967295]) {
     assert.equal(zone.walls.length, 4);
     for (const [x,y,z,w,h,d] of zone.walls) {
       assert.equal(y, 0);
-      assert.equal(h, 300);
+      assert.equal(h, WORLD_HEIGHT);
       assert.ok((w === 0) !== (d === 0));
       assert.ok(w === 0 ? [zone.x*32,(zone.x+zone.width)*32].includes(x) :
         [zone.z*32,(zone.z+zone.depth)*32].includes(z));

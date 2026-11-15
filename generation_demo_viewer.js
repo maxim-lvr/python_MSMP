@@ -1,6 +1,7 @@
 import * as THREE from './web/vendor/three.module.js';
 import { OrbitControls } from './web/vendor/OrbitControls.js';
 import { LABELS } from './generation_demo_generator.js';
+import {WORLD_MIN_Y, WORLD_MAX_Y, WORLD_HEIGHT} from './world_config.js';
 
 const PALETTE = {
   tower: 0x72a482, building: 0x9babb9, close: 0x659e9a, wide: 0xb99aa7,
@@ -24,7 +25,7 @@ orbit.minDistance = 15;
 orbit.maxDistance = 30000;
 orbit.maxPolarAngle = Math.PI * 0.49;
 const geometry = new THREE.BoxGeometry(1, 1, 1);
-const cut = { value: 300 }, fogDistance = { value: 0 };
+const cut = { value: WORLD_MAX_Y }, fogDistance = { value: 0 };
 const materials = {};
 for (const [kind, color] of Object.entries(PALETTE)) {
   materials[kind] = new THREE.ShaderMaterial({
@@ -66,12 +67,12 @@ for (const [kind, color] of Object.entries(PALETTE)) {
 
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), new THREE.MeshBasicMaterial({ color: 0xdce3df }));
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.1;
+floor.position.y = WORLD_MIN_Y-0.1;
 scene.add(floor);
 const grid = new THREE.GridHelper(5000, 50, 0x99aea2, 0xb9c6be);
-grid.position.y = -0.05;
+grid.position.y = WORLD_MIN_Y-0.05;
 scene.add(grid);
-const bounds = new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(-2500, 0, -2500), new THREE.Vector3(2500, 300, 2500)), 0x9aada0);
+const bounds = new THREE.Box3Helper(new THREE.Box3(new THREE.Vector3(-2500, WORLD_MIN_Y, -2500), new THREE.Vector3(2500, WORLD_MAX_Y, 2500)), 0x9aada0);
 scene.add(bounds);
 
 let mode = 'overview', data = null, sectorViews = [], worldGroup = new THREE.Group();
@@ -95,7 +96,7 @@ function meshesFor(boxes) {
   for (const [kind, items] of byKind) {
     const mesh = new THREE.InstancedMesh(geometry, materials[kind], items.length);
     items.forEach(([x, y, z, sx, sy, sz], i) => {
-      matrix.compose(position.set(x + sx / 2 - 2500, y + sy / 2, z + sz / 2 - 2500), rotation, scale.set(sx, sy, sz));
+      matrix.compose(position.set(x + sx / 2 - 2500, WORLD_MIN_Y + y + sy / 2, z + sz / 2 - 2500), rotation, scale.set(sx, sy, sz));
       mesh.setMatrixAt(i, matrix);
     });
     mesh.computeBoundingSphere();
@@ -129,7 +130,7 @@ async function regenerate() {
       next.add(coarse);
       const [x, y, z, sx, sy, sz] = sector.bounds;
       views.push({ coarse, detail: null, sector,
-        bounds: new THREE.Box3(new THREE.Vector3(x - 2500, y, z - 2500), new THREE.Vector3(x + sx - 2500, y + sy, z + sz - 2500)) });
+        bounds: new THREE.Box3(new THREE.Vector3(x - 2500, WORLD_MIN_Y + y, z - 2500), new THREE.Vector3(x + sx - 2500, WORLD_MIN_Y + y + sy, z + sz - 2500)) });
     }
     scene.remove(worldGroup);
     disposeGroup(worldGroup);
@@ -137,7 +138,7 @@ async function regenerate() {
     scene.add(worldGroup);
     data = result;
     sectorViews = views;
-    query('stats').textContent = `5000 x 5000 x 300 · ${result.sectors.length} builds relies · ${result.connections.length} raccords`;
+    query('stats').textContent = `5000 x 5000 x ${WORLD_HEIGHT} · Y ${WORLD_MIN_Y} a ${WORLD_MAX_Y} · ${result.sectors.length} builds relies · ${result.connections.length} raccords`;
     query('sector').replaceChildren(new Option('Builds', ''));
     for (const sector of result.sectors) query('sector').add(new Option(sector.name, sector.id));
     if (mode === 'fly') enterSector(selected < 0 || selected >= result.sectors.length ? 0 : selected);
@@ -161,7 +162,7 @@ function overview() {
   setMode('overview');
   const angle = Math.min(Math.PI / 6, Math.atan(Math.tan(Math.PI / 6) * camera.aspect));
   const distance = 3500 / Math.sin(angle);
-  orbit.target.set(0, 110, 0);
+  orbit.target.set(0, WORLD_MIN_Y + 110, 0);
   camera.position.copy(new THREE.Vector3(0.6, 0.85, 0.72).normalize().multiplyScalar(distance)).add(orbit.target);
   orbit.update();
 }
@@ -170,8 +171,8 @@ function enterSector(id) {
   const sector = data.sectors[id];
   selected = id;
   setMode('fly');
-  camera.position.set(sector.spawn[0] - 2500, sector.spawn[1], sector.spawn[2] - 2500);
-  camera.lookAt(sector.viewTarget[0] - 2500, sector.viewTarget[1], sector.viewTarget[2] - 2500);
+  camera.position.set(sector.spawn[0] - 2500, WORLD_MIN_Y + sector.spawn[1], sector.spawn[2] - 2500);
+  camera.lookAt(sector.viewTarget[0] - 2500, WORLD_MIN_Y + sector.viewTarget[1], sector.viewTarget[2] - 2500);
   query('sector').value = String(id);
   drawMap();
 }

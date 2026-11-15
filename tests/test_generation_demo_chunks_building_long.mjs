@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {generateChunks} from '../generation_demo_chunks_generator.js';
@@ -6,12 +7,12 @@ import {placeBuildingLong,populateBuildingLong} from '../generation_demo_chunks_
 for(const seed of [42,0,4141286262,...Array.from({length:30},(_,i)=>i+1)]) {
   const layout=generateChunks(seed),zones=placeBuildingLong(layout);
   assert.equal(zones.length,4);assert.deepEqual(zones,placeBuildingLong(layout));
-  const occupied=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]);
+  const occupied=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,WORLD_HEIGHT,z.depth*32]);
   for(const z of zones) {
     const b=z.box;
     assert.ok(z.length>=800&&z.length<=1280);
     assert.ok(b.every(Number.isInteger));
-    assert.ok(b[0]>=0&&b[2]>=0&&b[0]+b[3]<=5000&&b[2]+b[5]<=5000&&b[1]+b[4]<=300);
+    assert.ok(b[0]>=0&&b[2]>=0&&b[0]+b[3]<=5000&&b[2]+b[5]<=5000&&b[1]+b[4]<=WORLD_HEIGHT);
     assert.ok(!occupied.some(a=>b[0]<a[0]+a[3]+256&&b[0]+b[3]+256>a[0]&&b[2]<a[2]+a[5]+256&&b[2]+b[5]+256>a[2]));
     occupied.push(b);
     if(seed!==42)continue;

@@ -14,19 +14,21 @@ import {NOISE_WORLD} from './generation_noise_mask.js';
 const root=dirname(fileURLToPath(import.meta.url)),seed=42,density=6;
 const full=process.argv.includes('--full');
 if(process.argv.slice(2).some(arg=>arg!=='--full'))throw Error('Usage: node export_generation_noise.mjs [--full]');
-const bounds=full?[0,0,0,NOISE_WORLD.length,NOISE_WORLD.height,NOISE_WORLD.width]:[0,0,0,5000,300,5000];
+const bounds=[0,NOISE_WORLD.minY,0,full?NOISE_WORLD.length:5000,NOISE_WORLD.height,full?NOISE_WORLD.width:5000];
 const output=resolve(root,full?'exports/map_generation_final_seed42_10000x10000.json':'exports/map_noise_seed42_nord_ouest_5000x5000.json');
 try {await stat(output);throw Error(`Export already exists: ${output}`);}catch(e){if(e.code!=='ENOENT')throw e;}
 const image=JSON.parse(execFileSync('python3',['-c',
   'from PIL import Image; import json,base64; im=Image.open("noisemap_10000_redone_16.png").convert("RGBA"); print(json.dumps(dict(width=im.width,height=im.height,data=base64.b64encode(im.tobytes()).decode())))'
 ],{cwd:root,maxBuffer:10e6}));
 image.data=Buffer.from(image.data,'base64');
-const json=async url=>{const r=await fetch('http://127.0.0.1:5173'+url);if(!r.ok)throw Error(`${url}: HTTP ${r.status}`);return r.json();};
-const templates=await json(`/api/demo-chunks-templates?seed=${seed}`);
+const python=expression=>JSON.parse(execFileSync('python3',['-c',
+  `import json; from generation_demo_chunks_templates import wall_templates, building_long_template; print(json.dumps(${expression}))`
+],{cwd:root,maxBuffer:40_000_000}));
+const templates=python(`wall_templates(${seed})`);
 const {layout,mask}=noiseLayout(seed,image,console.log);
 for(let i=0;i<layout.buildingLong.length;i++) {
   const z=layout.buildingLong[i];
-  layout.buildingLong[i]=populateBuildingLong(z,await json(`/api/demo-building-long?seed=${z.seed}&length=${z.length}`));
+  layout.buildingLong[i]=populateBuildingLong(z,python(`building_long_template(${z.seed},${z.length})`));
   console.log(`Building Long ${i+1}/${layout.buildingLong.length}`);
 }
 console.log('Wide Areas and pipes...');
@@ -53,7 +55,7 @@ const temporary=output+'.partial',file=await open(temporary,'wx');
 const counts={},palette=new Set();let total=0,buffer='';
 try {
   await file.writeFile(JSON.stringify(header).slice(0,-1)+',"runs":[\n');
-  for(const raw of noiseMinecraftRuns(data,mask,noiseWalls(mask,layout.snakes,layout.settlements))) {
+  for(const raw of noiseMinecraftRuns(data,mask,noiseWalls(mask,layout.snakes,layout.settlements,data.globalPipe))) {
     const run=clipRun(raw,bounds);if(!run)continue;
     if(!/^minecraft:(air|deepslate|water|ladder\[facing=(north|south|east|west)\])$/.test(run.block))throw Error(run.block);
     counts[run.kind]=(counts[run.kind]||0)+1;palette.add(run.block);

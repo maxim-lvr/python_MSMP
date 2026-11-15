@@ -1,6 +1,7 @@
 import {mergeBoxes} from './generation_demo_generator.js';
+import {mapWorld} from './world_config.js';
 
-export const NOISE_WORLD={length:10000,width:10000,height:300,chunk:32};
+export const NOISE_WORLD=mapWorld(10000);
 export const NOISE_CELL=16;
 export const EMPTY_BRIGHTNESS=0.94;
 

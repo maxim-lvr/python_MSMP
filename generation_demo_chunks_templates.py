@@ -15,16 +15,16 @@ from map_builder_building_long import Zone as BuildingLongZone, build_payload as
 def wall_templates(seed: int) -> dict:
     strips = {}
     for length in range(64, 257, 32):
-        zone = Zone(length=length, width=96, height=240)
-        side = WallSide("north", "x", 0, (0, 1), 8, length - 8)
+        zone = Zone(length=length, width=96, height=320)
+        side = WallSide("north", "x", 0, (0, 1), 12, length - 12)
         blocks = {}
         rng = random.Random(seed + length)
         houses, connections, _, placed = generate_houses_on_side(
-            blocks, zone, side, rng, 1,
+            blocks, zone, side, rng, 1, root_count=max(4,length//40),
         )
         connections.extend(add_close_wall_bridges(blocks, zone, rng, {"north": (side, placed)}, 100))
         extend_houses_behind_walls(blocks, zone, houses, seed + length)
-        strips[length] = {"houses": houses, "connections": connections, "runs": blocks_to_runs(blocks)}
+        strips[length] = {"houses": houses, "connections": connections, "runs": blocks_to_runs(blocks), "height":zone.height}
     bridges = []
     for index in range(2):
         blocks, paths, towers, _ = generate_tower_bridges(
@@ -35,7 +35,7 @@ def wall_templates(seed: int) -> dict:
             "denseSize": [HOUSE_MIN_XZ, HOUSE_MAX_XZ, HOUSE_MIN_Y, HOUSE_MAX_Y]}
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=32)
 def building_long_template(seed: int, length: int) -> dict:
     payload = build_building_long(seed, BuildingLongZone(length=length), 10, include_ports=True)
     return {

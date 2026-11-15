@@ -1,3 +1,4 @@
+import {WORLD_MIN_Y,WORLD_MAX_Y,WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
@@ -8,15 +9,16 @@ if(!path)throw Error('Provide the completed Minecraft JSON export');
 const lines=createInterface({input:createReadStream(path),crlfDelay:Infinity});
 let header,summary,world,total=0,last;
 const counts={},samples={air_dense:0,air_house:0,long_trail:0};
-const probes=[{pos:[0,0,0],expected:undefined},{pos:[4999,299,4999],expected:undefined}];
+const probes=[{pos:[0,WORLD_MIN_Y,0],expected:undefined},{pos:[4999,WORLD_MAX_Y-1,4999],expected:undefined}];
 for await(const text of lines) {
   const line=text.trim();if(!line)continue;
   assert.ok(!line.includes('stone'),'Unexpected material or fill instruction');
   if(!header) {
     assert.ok(line.endsWith(',"runs":['));
     header=JSON.parse(`${line.slice(0,-9)}}`);
-    const [length,height,width]=header.zone.size;world={length,height,width};
-    assert.deepEqual(header.zone.size,[5000,300,5000]);
+    const [length,height,width]=header.zone.size;world={length,height,width,minY:header.zone.pos[1]};
+    assert.deepEqual(header.zone.size,[5000,WORLD_HEIGHT,5000]);
+    assert.deepEqual(header.zone.pos,[0,WORLD_MIN_Y,0]);
     assert.equal(header.settings.seed,42);
     continue;
   }

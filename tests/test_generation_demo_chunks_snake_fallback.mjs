@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {generateChunks} from '../generation_demo_chunks_generator.js';
 import {placeBuildingLong} from '../generation_demo_chunks_building_long.js';
@@ -8,8 +9,8 @@ const layout=generateChunks(4006339556);
 layout.buildingLong=placeBuildingLong(layout);
 const snakes=generateDemoSnakes(layout);
 assert.equal(snakes.length,4);
-const obstacles=[...layout.zones.map(z=>[z.x*32-100,0,z.z*32-100,z.width*32+200,300,z.depth*32+200]),
-  ...layout.buildingLong.map(({box:[x,,z,sx,,sz]})=>[x-100,0,z-100,sx+200,300,sz+200])];
+const obstacles=[...layout.zones.map(z=>[z.x*32-100,0,z.z*32-100,z.width*32+200,WORLD_HEIGHT,z.depth*32+200]),
+  ...layout.buildingLong.map(({box:[x,,z,sx,,sz]})=>[x-100,0,z-100,sx+200,WORLD_HEIGHT,sz+200])];
 for(const s of snakes) {
   assert.ok(s.length>=2400);
   for(const v of s.volumes)assert.ok(!obstacles.some(b=>overlaps(v,b)));

@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {generateChunks} from '../generation_demo_chunks_generator.js';
 import {placeWideAreas, populateWideArea} from '../generation_demo_chunks_wide.js';
@@ -15,7 +16,7 @@ assert.deepEqual(layout.wideAreas, placeWideAreas(layout));
 assert.equal(layout.wideAreas.filter(z => z.type === 'open').length, 2);
 assert.equal(layout.wideAreas.filter(z => z.type === 'restrict').length, 2);
 assert.equal(new Set(layout.wideAreas.map(z => z.seed)).size, 4);
-const reserved = [...layout.zones.map(z => [z.x*32, 0, z.z*32, z.width*32, 300, z.depth*32]),
+const reserved = [...layout.zones.map(z => [z.x*32, 0, z.z*32, z.width*32, WORLD_HEIGHT, z.depth*32]),
   ...layout.buildingLong.map(z => z.box), ...layout.snakes.flatMap(s => s.volumes)];
 layout.wideAreas = layout.wideAreas.map(area => {
   const result = populateWideArea(area), b = result.box;

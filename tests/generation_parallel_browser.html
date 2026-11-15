@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8"><title>Generation workers tests</title><pre id="result">Running worker tests…</pre>
+<script type="module">
+import {GenerationPool,generationWorkerCount} from '../generation_parallel.js';
+import {populateChunkCore,populateChunkCoreParallel} from '../generation_demo_chunks_population.js';
+import {connectPipeTunnels,connectPipeTunnelsParallel} from '../generation_demo_chunks_pipe_accesses.js';
+import {skinJobs,runSkinTask} from '../generation_demo_chunks_skin.js';
+import {pipeNetworkBoxes} from '../generation_demo_chunks_pipe.js';
+import {pipeFixture} from './generation_parallel_fixtures.js';
+const assert=(v,m)=>{if(!v)throw Error(m);};
+const json=d=>JSON.stringify(d,(k,v)=>v instanceof Set?[...v].sort((a,b)=>a-b):v instanceof Map?[...v].sort((a,b)=>a[0]-b[0]):v);
+const reports=[];let pool;
+try {
+ assert(generationWorkerCount(8,12)===8&&generationWorkerCount(6,12)===6&&generationWorkerCount(8,4)===2,'CPU budget');
+ const layout={seed:42,world:{length:1024,width:1024,height:1000,chunk:32},zones:[{id:0,x:8,z:8,width:2,depth:2}],wallHouseBands:[8,336,664]};
+ const houses=[1,304].map(y=>({box:[20,y,-10,12,16,20],rear_door:{pos:[25,y+1,-10]}}));
+ const templates={strips:{64:{height:320,houses,runs:[]}},bridges:[],denseSize:[5,30,5,8]};
+ const population=populateChunkCore(layout,templates,0,true);
+ const fixture=()=>{
+   const d=pipeFixture();
+   d.globalPipe.paths=[[[0,100,1024],[512,100,1024]],[[384,100,960],[896,100,960]]];
+   d.globalPipe.boxes=pipeNetworkBoxes(d.globalPipe.paths,d.world);
+   d.routes.push({a:[32,97,900],b:[2016,97,900],main:true});return d;
+ };
+ const original=connectPipeTunnels(fixture());assert(original.globalPipe.accesses.length>0,'Nonempty pipe fixture');
+ for(const count of [4,6,8]) {
+   pool=new GenerationPool(count,'test');
+   const parallel=await populateChunkCoreParallel(pool,layout,templates,0,true);
+   assert(json(parallel)===json(population),`Population differs on ${count} workers`);
+   const pipes=await connectPipeTunnelsParallel(fixture(),pool);
+   assert(json(pipes)===json(original),`Pipe results differ on ${count} workers`);
+   // Exercise a 512-block seam, including all diagonal neighbour cells.
+   const world={length:1024,width:1024,height:1000},key=([x,y,z])=>(y*1024+z)*1024+x;
+   const air=new Set([[511,4,511],[512,4,512],[511,5,512],[512,5,511]].map(key));
+   const jobs=skinJobs({air,brickShell:new Set(),snakeEntries:new Set(),houses:[],denseRooms:[],galleries:{outer:[]},shafts:[],world});
+   const serial=jobs.map(runSkinTask),actual=await pool.map('skin',jobs);
+   assert(json(actual)===json(serial),'Skin tile seam differs');
+   reports.push({requested:count,workers:pool.size,doors:pipes.globalPipe.accesses.length,equivalent:true});
+   pool.close();pool=null;
+ }
+ document.querySelector('#result').textContent=JSON.stringify({ok:true,reports});
+ await fetch('/__parallel_result?name=workers',{method:'POST',body:JSON.stringify({ok:true,reports})});
+}catch(error){pool?.close();document.querySelector('#result').textContent=error.stack;
+ await fetch('/__parallel_result?name=workers',{method:'POST',body:JSON.stringify({ok:false,error:error.stack})});}
+</script>

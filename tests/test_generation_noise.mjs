@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {noiseMask} from '../generation_noise_mask.js';
@@ -38,7 +39,7 @@ for(const room of result.denseRooms) {
 for(const b of result.networkBoxes) {
   assert(b.slice(0,6).every(Number.isInteger));
   assert(b.slice(3,6).every(v=>v>0));
-  assert(b[1]>=0&&b[1]+b[4]<=300);
+  assert(b[1]>=0&&b[1]+b[4]<=WORLD_HEIGHT);
   assert(shape.isSolid(b),'Structure crosses a fissure');
 }
 if(!process.argv.includes('--image')) {

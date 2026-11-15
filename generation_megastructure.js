@@ -8,8 +8,9 @@ import {localTunnelNetwork} from './generation_demo_chunks_network.js';
 import {galleryMeshes} from './generation_demo_chunks_galleries.js';
 import {growDense} from './generation_demo_chunks_growth.js';
 import {pipeNetworkBoxes} from './generation_demo_chunks_pipe.js';
+import {mapWorld} from './world_config.js';
 
-export const WORLD={length:5000,width:5000,height:300,chunk:32};
+export const WORLD=mapWorld(5000);
 const GRID=78,STEP=64;
 const move=(b,p,prefix='')=>[b[0]+p[0],b[1]+p[1],b[2]+p[2],...b.slice(3,6),prefix+b[6]];
 const point=(p,o)=>p.map((n,i)=>n+o[i]);
@@ -90,13 +91,13 @@ function skeleton(seed,templates,longModels) {
     if(type==='bridge')model={boxes:templates.bridges[0].runs.map(r=>[...r.pos,...r.size,r.kind]),
       world:{length:1024,width:320,height:300},spawn:[30,150,160],lookAt:[750,140,160]};
     const o=[Math.floor(cx-model.world.length/2)+int(-2,2)*16,y,Math.floor(cz-model.world.width/2)+int(-2,2)*16];
-    const box=[o[0]-48,0,o[2]-48,model.world.length+96,300,model.world.width+96];
+    const box=[o[0]-48,0,o[2]-48,model.world.length+96,WORLD.height,model.world.width+96];
     const boxes=mergeBoxes(model.boxes.map(b=>move(b,o,type+'_')));
     rooms.push({id:rooms.length,type,name,box,boxes,spawn:point(model.spawn,o),lookAt:point(model.lookAt,o),origin:o});
   }
   for(const [i,x,z] of [[0,1800,2330],[1,3120,2500],[2,2440,3090],[3,1800,3350]]) {
     const m=wallQuarter(templates,64,64),o=[x,0,z];
-    rooms.push({id:rooms.length,type:'wall',name:`Puits de service ${i+1}`,box:[x-32,0,z-32,128,300,128],
+    rooms.push({id:rooms.length,type:'wall',name:`Puits de service ${i+1}`,box:[x-32,0,z-32,128,WORLD.height,128],
       boxes:mergeBoxes(m.boxes.map(b=>move(b,o,'wall_'))),spawn:point(m.spawn,o),lookAt:point(m.lookAt,o),origin:o});
   }
   // Service habitats nest in the thickness between the main halls, at distinct elevations.
@@ -171,7 +172,7 @@ function routesFor(rooms,seed) {
   const p=id=>[(id%GRID)*STEP+32,Math.floor(id/GRID)*STEP+32];
   for(let id=0;id<blocked.length;id++) {
     const [x,z]=p(id);
-    if(x<96||z<96||x>4900||z>4900||query([x-40,0,z-40,81,300,81]).length)blocked[id]=1;
+    if(x<96||z<96||x>4900||z>4900||query([x-40,0,z-40,81,WORLD.height,81]).length)blocked[id]=1;
   }
   const entries=rooms.map(room=>{
     const door=access(room),end=door.exit;
@@ -182,7 +183,7 @@ function routesFor(rooms,seed) {
       for(const corner of [[x,end[2]],[end[0],z]]) {
         const pts=[[end[0],end[2]],corner,[x,z]];
         if(pts.slice(1).every((b,i)=>!query([Math.min(b[0],pts[i][0])-2,0,Math.min(b[1],pts[i][1])-2,
-          Math.abs(b[0]-pts[i][0])+5,300,Math.abs(b[1]-pts[i][1])+5]).length)) {
+          Math.abs(b[0]-pts[i][0])+5,WORLD.height,Math.abs(b[1]-pts[i][1])+5]).length)) {
           choices.push({id,pts,d});break;
         }
       }
@@ -294,10 +295,10 @@ export function generateMegastructure(seed,templates,longModels,progress=()=>{},
   const galleries=corridorSections(paths);galleries.shafts=shafts;
   const air=new Set(),key=(x,y,z)=>(y*WORLD.width+z)*WORLD.length+x;
   const galleryIndex=indexBoxes(galleries.outer);
-  const pipeLevel=p=>Math.max(p[1]+38,...galleryIndex([p[0]-10,0,p[2]-10,21,300,21]).map(b=>b[1]+b[4]+12));
+  const pipeLevel=p=>Math.max(p[1]+38,...galleryIndex([p[0]-10,0,p[2]-10,21,WORLD.height,21]).map(b=>b[1]+b[4]+12));
   const pipePaths=circulation.pipeEdges.map(([a,b])=>{
     const p=circulation.point(a),q=circulation.point(b),pa=pipeLevel(p),pb=pipeLevel(q);
-    const crossed=galleryIndex([Math.min(p[0],q[0])-10,0,Math.min(p[2],q[2])-10,Math.abs(p[0]-q[0])+21,300,Math.abs(p[2]-q[2])+21]);
+    const crossed=galleryIndex([Math.min(p[0],q[0])-10,0,Math.min(p[2],q[2])-10,Math.abs(p[0]-q[0])+21,WORLD.height,Math.abs(p[2]-q[2])+21]);
     const y=Math.max(pa,pb,...crossed.map(b=>b[1]+b[4]+12));
     return [[p[0],pa,p[2]],[p[0],y,p[2]],[q[0],y,q[2]],[q[0],pb,q[2]]];
   });

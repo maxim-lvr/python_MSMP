@@ -2,23 +2,13 @@ import {localTunnelNetwork} from './generation_demo_chunks_network.js';
 import {mergeBoxes, overlaps, subtract} from './generation_demo_generator.js';
 import {expandPipeNetwork} from './generation_demo_chunks_pipe_network.js';
 import {snakeAccessPlans} from './generation_demo_chunks_snake_ports.js';
+import {compactPipePath as simplify} from './generation_demo_chunks_pipe_paths.js';
 
 export const GLOBAL_PIPE_RADIUS = 6;
 const BORE = 4, BAND_RADIUS = 8, CLEARANCE = 10, STEP = 64;
 const distance = (a, b) => a.reduce((sum, n, i) => sum + Math.abs(n - b[i]), 0);
 const segmentBox = (a, b, radius) => [...a.map((v, i) => Math.min(v, b[i]) - radius),
   ...a.map((v, i) => Math.abs(v - b[i]) + radius * 2 + 1)];
-const simplify = points => {
-  const result = [];
-  for (const p of points) {
-    if (result.length && distance(result.at(-1), p) === 0) continue;
-    const a = result.at(-2), b = result.at(-1);
-    if (a && [0, 1, 2].some(axis => [0, 1, 2].every(i => i === axis || a[i] === b[i] && b[i] === p[i]) &&
-      Math.sign(b[axis] - a[axis]) === Math.sign(p[axis] - b[axis]))) result.pop();
-    result.push(p);
-  }
-  return result;
-};
 
 export function generatePipeTrunk(layout) {
   let state = (layout.seed ^ 0x50495045) >>> 0;
@@ -103,7 +93,7 @@ export function pipeBoxes(points, world) {
   return pipeNetworkBoxes([points], world);
 }
 
-export function generateGlobalPipe(layout) {
+export function generateGlobalPipe(layout,progress=()=>{}) {
   // Entrances take priority over decorative pipes, including their vertical access shafts.
   const plans = snakeAccessPlans({...layout, globalPipe:null}, [], [], []);
   const pipeAccessReservations = plans.flatMap(plan => [
@@ -115,7 +105,7 @@ export function generateGlobalPipe(layout) {
     }),
   ]);
   const reservedLayout = {...layout, pipeAccessReservations};
-  const network = expandPipeNetwork(reservedLayout, generatePipeTrunk(reservedLayout));
+  const network = expandPipeNetwork(reservedLayout, generatePipeTrunk(reservedLayout),progress);
   return {...network, length:pipeNetworkSegments(network.paths).reduce((sum,s)=>sum+s.hi-s.lo,0),
     boxes:pipeNetworkBoxes(network.paths, layout.world)};
 }
@@ -140,6 +130,24 @@ export function pipeNetworkSegments(paths) {
   return segments;
 }
 
+export function* pipeBoreBoxes(paths) {
+  for(const {a,axis,lo,hi} of pipeNetworkSegments(paths)) {
+    const cross=[0,1,2].filter(i=>i!==axis);
+    for(let u=-BORE;u<=BORE;u++)for(let v=-BORE;v<=BORE;v++)if(u*u+v*v<=BORE*BORE) {
+      const p=[...a],size=[1,1,1];
+      p[axis]=lo;p[cross[0]]+=u;p[cross[1]]+=v;size[axis]=hi-lo+1;
+      yield [...p,...size];
+    }
+  }
+  const joints=new Map();
+  for(const path of paths)for(const p of path.slice(1,-1))joints.set(p.join(','),p);
+  for(const p of joints.values())for(let y=-BORE;y<=BORE;y++)for(let z=-BORE;z<=BORE;z++) {
+    if(y*y+z*z>BORE*BORE)continue;
+    const x=Math.floor(Math.sqrt(BORE*BORE-y*y-z*z));
+    yield [p[0]-x,p[1]+y,p[2]+z,x*2+1,1,1];
+  }
+}
+
 export function pipeNetworkBoxes(paths, world) {
   const segments=pipeNetworkSegments(paths), jointMap=new Map();
   for(let i=0;i<segments.length;i++)for(let j=i+1;j<segments.length;j++) {
@@ -151,10 +159,42 @@ export function pipeNetworkBoxes(paths, world) {
   const boxes = [], radius = GLOBAL_PIPE_RADIUS, joints = [...jointMap.values()];
   const jointBoxes = joints.map(p => [...p.map(n => n - BAND_RADIUS), ...Array(3).fill(BAND_RADIUS * 2 + 1)]);
   const limits = [world.length, world.height, world.width];
+  const boreBuckets = new Map();
+  function* boreKeys(box) {
+    for (let x = Math.floor(box[0]/128); x <= Math.floor((box[0]+box[3]-1)/128); x++)
+      for (let y = Math.floor(box[1]/128); y <= Math.floor((box[1]+box[4]-1)/128); y++)
+        for (let z = Math.floor(box[2]/128); z <= Math.floor((box[2]+box[5]-1)/128); z++) yield `${x},${y},${z}`;
+  }
+  for (const segment of segments) for (const key of boreKeys(segmentBox(segment.a,segment.b,BORE))) {
+    if (!boreBuckets.has(key)) boreBuckets.set(key,[]);
+    boreBuckets.get(key).push(segment);
+  }
   const emit = box => {
     const min = box.slice(0, 3).map(n => Math.max(0, n));
     const size = min.map((n, i) => Math.min(limits[i], box[i] + box[i + 3]) - n);
-    if (size.every(n => n > 0)) boxes.push([...min, ...size, box[6]]);
+    if (!size.every(n => n > 0)) return;
+    let parts = [[...min, ...size, box[6]]];
+    // Taller maps can bring separate branches within one pipe radius of each other.
+    // Carve every bore from the combined shells, including near parallel branches.
+    const nearby = new Set();
+    for (const key of boreKeys(parts[0])) for (const segment of boreBuckets.get(key)||[]) nearby.add(segment);
+    for (const {a,axis,lo,hi} of nearby) {
+      if (min[axis] > hi || min[axis] + size[axis] <= lo) continue;
+      const cross = [0,1,2].filter(i => i !== axis);
+      const distanceSquared = cross.reduce((sum,i) => sum + Math.max(0,
+        min[i] - a[i], a[i] - min[i] - size[i] + 1) ** 2, 0);
+      if (distanceSquared > BORE * BORE) continue;
+      const [u,v] = cross;
+      for (let x = Math.max(min[u],a[u]-BORE); x < Math.min(min[u]+size[u],a[u]+BORE+1); x++)
+        for (let y = Math.max(min[v],a[v]-BORE); y < Math.min(min[v]+size[v],a[v]+BORE+1); y++) {
+          if ((x-a[u])**2 + (y-a[v])**2 > BORE * BORE) continue;
+          const p = [...a], extent = [1,1,1];
+          p[axis] = lo; p[u] = x; p[v] = y; extent[axis] = hi-lo+1;
+          parts = parts.flatMap(part => subtract(part,[...p,...extent]));
+        }
+      if (!parts.length) break;
+    }
+    boxes.push(...parts);
   };
   for (const {a,b,axis} of segments) {
     const cuts=jointBoxes.filter(box=>overlaps(box,segmentBox(a,b,BAND_RADIUS)));

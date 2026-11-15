@@ -1,5 +1,6 @@
 import * as THREE from './web/vendor/three.module.js';
 import {OrbitControls} from './web/vendor/OrbitControls.js';
+import {WORLD_MIN_Y, WORLD_MAX_Y, WORLD_HEIGHT} from './world_config.js';
 
 const $=id=>document.getElementById(id),scene=new THREE.Scene();
 const renderer=new THREE.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true,preserveDrawingBuffer:true});
@@ -12,7 +13,7 @@ const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamp
 scene.add(new THREE.HemisphereLight(0xe3e9db,0x66776d,2.4));
 const sun=new THREE.DirectionalLight(0xffecd7,2.5);sun.position.set(-400,600,280);scene.add(sun);
 const fill=new THREE.DirectionalLight(0xc2d7d7,.7);fill.position.set(500,160,-300);scene.add(fill);
-const cutPlane=new THREE.Plane(new THREE.Vector3(0,-1,0),300.02);renderer.clippingPlanes=[cutPlane];
+const cutPlane=new THREE.Plane(new THREE.Vector3(0,-1,0),WORLD_MAX_Y+.02);renderer.clippingPlanes=[cutPlane];
 const cube=new THREE.BoxGeometry(1,1,1),materials=new Map();
 let meshes=[],result,flying=true,worker,ready=false;
 let overviewMeshes=[];
@@ -46,14 +47,15 @@ function visit() {
   if(!result)return;
   flying=true;controls.enabled=false;scene.fog.density=.0015;
   const v=result.visits[Number($('visit').value)||0];
-  camera.position.set(...v.spawn);camera.lookAt(...v.lookAt);
+  camera.position.set(v.spawn[0],WORLD_MIN_Y+v.spawn[1],v.spawn[2]);
+  camera.lookAt(v.lookAt[0],WORLD_MIN_Y+v.lookAt[1],v.lookAt[2]);
   $('fly').setAttribute('aria-pressed','true');$('plan').setAttribute('aria-pressed','false');
 }
 function overview() {
   flying=false;controls.enabled=true;scene.fog.density=0;
   if(document.pointerLockElement)document.exitPointerLock();
   const d=5500/Math.min(1,camera.aspect);
-  camera.position.set(2500+d*.12,d*.7,2500+d*.65);controls.target.set(2500,100,2500);controls.update();
+  camera.position.set(2500+d*.12,WORLD_MIN_Y+d*.7,2500+d*.65);controls.target.set(2500,WORLD_MIN_Y+100,2500);controls.update();
   $('fly').setAttribute('aria-pressed','false');$('plan').setAttribute('aria-pressed','true');
 }
 function show(data) {
@@ -73,7 +75,7 @@ function show(data) {
   }
   for(const boxes of groups.values()) {
     const kind=boxes[0][6],mesh=new THREE.InstancedMesh(cube,material(kind),boxes.length);
-    boxes.forEach(([x,y,z,sx,sy,sz],i)=>{matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,y+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);});
+    boxes.forEach(([x,y,z,sx,sy,sz],i)=>{matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,WORLD_MIN_Y+y+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);});
     mesh.computeBoundingBox();mesh.computeBoundingSphere();mesh.userData.kind=kind;scene.add(mesh);meshes.push(mesh);
   }
   const overviewBoxes=[...data.denseRooms.map(r=>[...r.box,'dense']),...data.rooms.map(r=>[...r.box,'landmark'])];
@@ -83,12 +85,12 @@ function show(data) {
   }
   for(const [kind,color] of [['dense',0x89968d],['landmark',0x576b65],['route',0x393f3e]]) {
     const boxes=overviewBoxes.filter(b=>b[6]===kind),mesh=new THREE.InstancedMesh(cube,new THREE.MeshLambertMaterial({color}),boxes.length);
-    boxes.forEach(([x,y,z,sx,sy,sz],i)=>{matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,y+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);});
+    boxes.forEach(([x,y,z,sx,sy,sz],i)=>{matrix.makeScale(sx,sy,sz);matrix.setPosition(x+sx/2,WORLD_MIN_Y+y+sy/2,z+sz/2);mesh.setMatrixAt(i,matrix);});
     mesh.computeBoundingSphere();scene.add(mesh);overviewMeshes.push(mesh);
   }
   $('visit').replaceChildren(...data.visits.map((v,i)=>new Option(v.name,i)));
   const s=data.stats;
-  $('stats').textContent=`5000 x 5000 x 300 · ${s.rooms} grands ensembles · ${s.dense} pieces · ${s.snakes} Snake · ${s.seconds.toFixed(1)}\u00a0s`;
+  $('stats').textContent=`5000 x 5000 x ${WORLD_HEIGHT} · Y ${WORLD_MIN_Y} a ${WORLD_MAX_Y} · ${s.rooms} grands ensembles · ${s.dense} pieces · ${s.snakes} Snake · ${s.seconds.toFixed(1)}\u00a0s`;
   inspection();visit();ready=true;
 }
 function generate() {

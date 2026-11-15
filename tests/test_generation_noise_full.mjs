@@ -8,6 +8,7 @@ import {populateWideArea} from '../generation_demo_chunks_wide.js';
 import {generateGlobalPipe} from '../generation_demo_chunks_pipe.js';
 import {populateChunks} from '../generation_demo_chunks_houses.js';
 import {snakeAccessPlans} from '../generation_demo_chunks_snake_ports.js';
+import {validPipeConnection} from '../generation_demo_chunks_pipe_paths.js';
 
 const image=JSON.parse(execFileSync('python3',['-c',
   'from PIL import Image; import json,base64; im=Image.open("noisemap_10000_redone_16.png").convert("RGBA"); print(json.dumps(dict(width=im.width,height=im.height,data=base64.b64encode(im.tobytes()).decode())))'
@@ -16,7 +17,8 @@ image.data=Buffer.from(image.data,'base64');
 const seed=Number(process.env.SEED||42);
 const started=performance.now(),{layout,mask}=noiseLayout(seed,image,console.log);
 assert.equal(layout.world.length,10000);assert.equal(layout.world.width,10000);
-assert.equal(layout.wideAreas.length,6);assert.equal(layout.buildingLong.length,11);
+assert.equal(layout.wideAreas.length,13);assert.equal(layout.buildingLong.length,9);
+assert.equal(layout.wideAreas.filter(z=>z.type==='ultra_dense').length,7);
 assert.equal(layout.snakes.length,8);
 assert.equal(layout.zones.filter(z=>z.type==='bridge_zone').length,5);
 assert.equal(layout.zones.filter(z=>z.type==='house_wall').length,160);
@@ -79,10 +81,15 @@ if(process.argv.includes('--full')) {
   console.log('Building Long OK');
   layout.wideAreas=layout.wideAreas.map(populateWideArea);
   layout.globalPipe=generateGlobalPipe(layout);
+  assert.equal(layout.globalPipe.connections.length,6);
+  for(const branch of layout.globalPipe.branches)
+    assert(validPipeConnection(layout.globalPipe.paths[branch.path],layout.globalPipe.paths.slice(0,branch.path)));
+  for(const connection of layout.globalPipe.connections)
+    assert(validPipeConnection(layout.globalPipe.paths[connection.path],layout.globalPipe.paths.slice(0,connection.path),false));
   console.log('Wide, pipes OK');
   const result=populateChunks(layout,await templates,undefined,false,6);
   assert.equal(result.stats.connectedDense,result.stats.denseRooms);
-  assert.equal(result.stats.buildingConnections,44);
+  assert.equal(result.stats.buildingConnections,36);
   assert.equal(result.stats.villageConnections,100);
   const connectedNodes=new Set(result.edges.flat());
   for(const v of villages) {

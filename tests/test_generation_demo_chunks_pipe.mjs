@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {generateChunks} from '../generation_demo_chunks_generator.js';
 import {placeBuildingLong} from '../generation_demo_chunks_building_long.js';
@@ -5,6 +6,7 @@ import {generateDemoSnakes} from '../generation_demo_chunks_snakes.js';
 import {placeWideAreas, populateWideArea} from '../generation_demo_chunks_wide.js';
 import {generateGlobalPipe, pipeBoxes, pipeNetworkBoxes, pipeNetworkSegments} from '../generation_demo_chunks_pipe.js';
 import {overlaps} from '../generation_demo_generator.js';
+import {validPipeConnection} from '../generation_demo_chunks_pipe_paths.js';
 
 const layout = generateChunks(42);
 layout.buildingLong = placeBuildingLong(layout);
@@ -16,14 +18,21 @@ assert.ok(pipe.length >= 4999);
 assert.ok(pipe.drops >= 1);
 assert.equal(pipe.connectedZones.length,2);
 assert.equal(pipe.connections.length,4);
+assert.equal(pipe.ports.filter(p=>p.role==='inlet').length,3);
+assert.equal(pipe.ports.filter(p=>p.role==='outlet').length,3);
+for(const branch of pipe.branches) {
+  const path=pipe.paths[branch.path];
+  assert(validPipeConnection(path,pipe.paths.slice(0,branch.path)),'Branches must join two distinct network points');
+  assert.deepEqual(branch.inlet,path[0]);assert.deepEqual(branch.outlet,path.at(-1));
+}
 assert.ok(pipe.branches.length>=8);
 assert.ok(new Set(pipe.branches.map(b=>b.y)).size>=5);
 assert.ok(Math.max(...pipe.points.map(p=>p[1])) - Math.min(...pipe.points.map(p=>p[1])) >= 72);
 assert.ok([0,2].some(axis => Math.abs(pipe.points[0][axis]-pipe.points.at(-1)[axis])===4999));
-const obstacles = [...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]),
+const obstacles = [...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,WORLD_HEIGHT,z.depth*32]),
   ...layout.buildingLong.map(z=>z.box), ...layout.wideAreas.filter(z=>z.type!=='open').map(z=>z.box), ...layout.snakes.flatMap(s=>s.volumes)];
 for(const volume of pipe.volumes)assert.ok(!obstacles.some(b=>overlaps(b,volume)));
-const bounds=[5000,300,5000];
+const bounds=[5000,WORLD_HEIGHT,5000];
 for(const b of pipe.boxes)assert.ok(b.slice(0,6).every(Number.isInteger)&&[0,1,2].every(i=>b[i]>=0&&b[i+3]>0&&b[i]+b[i+3]<=bounds[i]));
 for(let i=1;i<pipe.points.length;i++) {
   const a=pipe.points[i-1],b=pipe.points[i],axis=[0,1,2].filter(n=>a[n]!==b[n]);assert.equal(axis.length,1);

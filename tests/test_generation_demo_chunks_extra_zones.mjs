@@ -1,3 +1,4 @@
+import {WORLD_HEIGHT} from '../world_config.js';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {generateChunks,addExtraZones} from '../generation_demo_chunks_generator.js';
@@ -8,7 +9,7 @@ const layout=generateChunks(42);
 addExtraZones(layout);
 assert.equal(layout.zones.filter(z=>z.type==='house_wall').length,30);
 assert.equal(layout.zones.filter(z=>z.type==='bridge_zone').length,2);
-const boxes=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,300,z.depth*32]);
+const boxes=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,WORLD_HEIGHT,z.depth*32]);
 for(let i=0;i<boxes.length;i++)for(let j=0;j<i;j++)assert.ok(!overlaps(boxes[i],boxes[j]));
 const templates=JSON.parse(execFileSync('python3',['-c',
   'import json; from generation_demo_chunks_templates import wall_templates; print(json.dumps(wall_templates(42)))'],

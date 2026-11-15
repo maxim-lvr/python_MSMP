@@ -50,19 +50,19 @@ export function generateDemoSnakes(layout) {
   let state=(layout.seed^0x534e414b)>>>0;
   const integer=(a,b)=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return a+Math.floor(state/4294967296*(b-a+1));};
   // Leave room around cavity houses, rear doors and their ladder approaches.
-  const obstacles=layout.zones.map(z=>[z.x*32-100,0,z.z*32-100,z.width*32+200,300,z.depth*32+200]);
-  for(const {box:[x,,z,sx,,sz]} of layout.buildingLong||[])obstacles.push([x-100,0,z-100,sx+200,300,sz+200]);
-  for(const {box:[x,,z,sx,,sz]} of layout.wideAreas||[])obstacles.push([x-100,0,z-100,sx+200,300,sz+200]);
+  const obstacles=layout.zones.map(z=>[z.x*32-100,0,z.z*32-100,z.width*32+200,layout.world.height,z.depth*32+200]);
+  for(const {box:[x,,z,sx,,sz]} of layout.buildingLong||[])obstacles.push([x-100,0,z-100,sx+200,layout.world.height,sz+200]);
+  for(const {box:[x,,z,sx,,sz]} of layout.wideAreas||[])obstacles.push([x-100,0,z-100,sx+200,layout.world.height,sz+200]);
   const snakes=[];
   const localRoutes=layout.snakeVoidCrossings!==undefined;
   for(let id=0;id<(layout.buildCounts?.snakes??SNAKE_COUNT);id++) {
-    const y=12+(id%4)*70+integer(0,12),seed=integer(0,0xffffffff);
+    const y=12+(id%4)*Math.floor((layout.world.height-HEIGHT-36)/3)+integer(0,12),seed=integer(0,0xffffffff);
     const sameBand=snakes.filter(s=>layout.isSolidBox||s.id%4===id%4).flatMap(s=>s.volumes);
     const blocked=new Uint8Array(SIZE*SIZE);
     for(let node=0;node<blocked.length;node++) {
       const p=point(node);
       // Inflate by half a routing cell so entire edges, not only nodes, stay clear.
-      const margin=STEP/2+20,area=[p.x-margin,0,p.z-margin,margin*2,300,margin*2];
+      const margin=STEP/2+20,area=[p.x-margin,0,p.z-margin,margin*2,layout.world.height,margin*2];
       if(obstacles.some(b=>overlap(area,b))||sameBand.some(b=>overlap(area,b))||(!localRoutes&&layout.isSolidBox&&!layout.isSolidBox(area)))blocked[node]=1;
     }
     let route, fallback=[];
@@ -74,7 +74,7 @@ export function generateDemoSnakes(layout) {
         const ex=x+integer(5,22)*(integer(0,1)?1:-1),ez=z+integer(5,22)*(integer(0,1)?1:-1);
         if(ex<2||ex>=SIZE-2||ez<2||ez>=SIZE-2)continue;
         start=z*SIZE+x;end=ez*SIZE+ex;
-        if([start,end].some(n=>{const p=point(n);return !layout.isSolidBox([p.x-60,0,p.z-60,120,300,120]);}))continue;
+        if([start,end].some(n=>{const p=point(n);return !layout.isSolidBox([p.x-60,0,p.z-60,120,layout.world.height,120]);}))continue;
       } else if(attempt<80) {
         const rowA=integer(1,SIZE-2),rowB=integer(1,SIZE-2);
         start=rowA*SIZE+integer(0,3);end=rowB*SIZE+integer(SIZE-4,SIZE-1);
@@ -115,7 +115,7 @@ export function generateDemoSnakes(layout) {
       if(!localRoutes)return true;
       const [x,dy,z]=door.pos,[nx,,nz]=door.normal;
       // No external ladder in a fissure: close that rear opening with the original wall material.
-      if(layout.isSolidBox([x+nx*24-32,0,z+nz*24-32,65,300,65]))return true;
+      if(layout.isSolidBox([x+nx*24-32,0,z+nz*24-32,65,layout.world.height,65]))return true;
       boxes.push([x,dy,z,1,2,1,'snake_wall']);return false;
     });
     if(localRoutes&&!rearDoors.length)throw Error(`Snake ${id+1} sans porte vers une zone pleine`);

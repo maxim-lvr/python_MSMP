@@ -1501,11 +1501,12 @@ def generate_houses_on_side(
     rng: random.Random,
     chain_start: int,
     add_connections: bool = True,
+    root_count: int | None = None,
 ) -> tuple[list[dict], list[dict], int, list[HouseVolume]]:
     placed: list[HouseVolume] = []
     houses = []
     connections = []
-    root_count = max(2, (side.end - side.start) // HOUSE_ROOT_SPACING)
+    root_count = root_count if root_count is not None else max(2, (side.end - side.start) // HOUSE_ROOT_SPACING)
 
     for offset in range(root_count):
         chain_id = chain_start + offset

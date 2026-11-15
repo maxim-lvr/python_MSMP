@@ -1,8 +1,12 @@
 // Ordered fills, compatible with the existing Minecraft JSON run importer.
+import {worldRun} from './world_config.js';
+
 export const EXPORT_BLOCKS = {
   wall:'minecraft:deepslate',house:'minecraft:deepslate',
   house_bridge:'minecraft:deepslate',house_stair:'minecraft:deepslate',
   window:'minecraft:deepslate',dense:'minecraft:deepslate',tunnel:'minecraft:deepslate',
+  main_tunnel:'minecraft:deepslate',main_tunnel_frame:'minecraft:deepslate',
+  ladder_support:'minecraft:deepslate',
   snake_wall:'minecraft:deepslate',snake_floor:'minecraft:deepslate',
   snake_facade:'minecraft:deepslate',snake_alternate:'minecraft:deepslate',
   snake_partition:'minecraft:deepslate',snake_bridge:'minecraft:deepslate',
@@ -16,11 +20,11 @@ export const EXPORT_BLOCKS = {
 const PALETTE=new Set([...Object.values(EXPORT_BLOCKS),'minecraft:air']);
 
 export function exportHeader(data) {
-  const {length,height,width}=data.world;
+  const {length,height,width,minY=0}=data.world;
   return {
     version:1,type:'generation_demo_chunks_minecraft_export',units:'blocks',
     operation_order:'apply runs in order; later runs overwrite earlier runs',
-    zone:{pos:[0,0,0],size:[length,height,width]},
+    zone:{pos:[0,minY,0],size:[length,height,width]},
     settings:{seed:data.seed,density:data.density},
     import_notes:[
       'Apply only the listed runs, including all air fills.',
@@ -28,7 +32,7 @@ export function exportHeader(data) {
       'Split large fills into Minecraft chunks; preserve run order within each chunk.',
       'Parse bracketed block states. Place ladders last, facing north with backing to the south.',
       'Use 64-bit arithmetic for volumes. Do not allocate a dense array for the whole map.',
-      `Coordinates are absolute: Y 0 through ${height-1}. No NBT files are needed.`,
+      `Coordinates are absolute: Y ${minY} through ${minY+height-1} (upper bound ${minY+height}, exclusive). No NBT files are needed.`,
     ],
     stats:{...data.stats,zones:data.zones.length,snakes:data.snakes?.length||0,
       buildingLong:data.buildingLong?.length||0},
@@ -43,8 +47,9 @@ function run(box,kind,block) {
 export function validateRun(value,world) {
   if(!PALETTE.has(value.block))throw Error(`Invalid export block: ${value.block}`);
   const limits=[world.length,world.height,world.width];
-  if(!value.pos.every((v,i)=>Number.isSafeInteger(v)&&v>=0&&Number.isSafeInteger(value.size[i])&&
-    value.size[i]>0&&v+value.size[i]<=limits[i]))throw Error(`Invalid export volume: ${JSON.stringify(value)}`);
+  const origin=[0,world.minY??0,0];
+  if(!value.pos.every((v,i)=>Number.isSafeInteger(v)&&v>=origin[i]&&Number.isSafeInteger(value.size[i])&&
+    value.size[i]>0&&v+value.size[i]<=origin[i]+limits[i]))throw Error(`Invalid export volume: ${JSON.stringify(value)}`);
 }
 
 export function* excavatedRuns(air,world) {
@@ -64,6 +69,10 @@ export function* excavatedRuns(air,world) {
 }
 
 export function* minecraftRuns(data) {
+  for(const operation of localMinecraftRuns(data))yield worldRun(operation,data.world);
+}
+
+function* localMinecraftRuns(data) {
   if(!(data.air instanceof Set))throw Error('Export requires the actual excavated network air');
   const {height,chunk}=data.world;
   for(const z of data.zones)

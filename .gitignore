@@ -1,2 +1,4 @@
 exports/
+.cache/
+__pycache__/
 structures/

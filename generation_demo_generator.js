@@ -1,6 +1,8 @@
 import { generateSnake } from './house_tunnel_snake_generator.js';
 
-export const WORLD = { length: 5000, width: 5000, height: 300 };
+import {mapWorld} from './world_config.js';
+
+export const WORLD = mapWorld(5000);
 export const TYPES = ['dense', 'tunnel', 'bridge', 'long', 'close', 'wide'];
 export const LABELS = {
   bridge: 'Tours et ponts', long: 'Building long', close: 'House close',
@@ -182,7 +184,7 @@ function rotatedTemplate(template, rotation) {
 }
 function translate(box, origin) { return box.map((v, i) => i < 3 ? v + origin[i] : v); }
 function inWorld(b) {
-  return [0, 1, 2].every(i => b[i] >= 0 && b[i] + b[i + 3] <= [5000, 300, 5000][i]);
+  return [0, 1, 2].every(i => b[i] >= 0 && b[i] + b[i + 3] <= [WORLD.length, WORLD.height, WORLD.width][i]);
 }
 
 export function assembleDemo(seed, templates, count = 18) {
