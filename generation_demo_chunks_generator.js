@@ -1,3 +1,4 @@
+import {buildingAltitude,verticalNear,zoneVolume} from './generation_vertical.js';
 import {mapWorld} from './world_config.js';
 
 export const WORLD = mapWorld(5000);
@@ -23,7 +24,7 @@ export function generateChunks(seed = 42) {
       x + width + MIN_GAP > other.x && z < other.z + other.depth + MIN_GAP &&
       z + depth + MIN_GAP > other.z)) continue;
     // One surface per exposed rectangle edge; adjacent chunks have no dividing wall.
-    const s = WORLD.chunk, h = WORLD.height;
+    const s = WORLD.chunk, h = WORLD.height, y = 0;
     const walls = [
       [x*s, 0, z*s, width*s, h, 0],
       [x*s, 0, (z+depth)*s, width*s, h, 0],
@@ -48,16 +49,19 @@ export function addExtraZones(layout,types=[...Array(2).fill('bridge_zone'),...A
       const width=type==='house_wall'?2:rotated?10:32,depth=type==='house_wall'?2:rotated?32:10;
       const margin=attempt<2000?128:attempt<6000?64:32;
       const x=integer(2,limit-width-2),z=integer(2,limit-depth-2);
+      const height=layout.verticalBuildings?(type==='bridge_zone'?300:integer(...layout.houseWallHeightRange)):world.height;
+      const y=layout.verticalBuildings?buildingAltitude(layout,zones.length,height,integer):0;
+      const candidate=[x*32,y,z*32,width*32,height,depth*32];
       const padding=type==='bridge_zone'?16:80;
       if(layout.isSolidBox&&!layout.isSolidBox([x*32-padding,0,z*32-padding,width*32+padding*2,world.height,depth*32+padding*2]))continue;
-      if(zones.some(o=>x<o.x+o.width+MIN_GAP&&x+width+MIN_GAP>o.x&&
+      if(zones.some(o=>(!layout.verticalBuildings||verticalNear(candidate,zoneVolume(o,world),24))&&x<o.x+o.width+MIN_GAP&&x+width+MIN_GAP>o.x&&
         z<o.z+o.depth+MIN_GAP&&z+depth+MIN_GAP>o.z))continue;
-      if(reserved.some(b=>x*32<b[0]+b[3]+margin&&(x+width)*32+margin>b[0]&&
+      if(reserved.some(b=>(!layout.verticalBuildings||verticalNear(candidate,b,24))&&x*32<b[0]+b[3]+margin&&(x+width)*32+margin>b[0]&&
         z*32<b[2]+b[5]+margin&&(z+depth)*32+margin>b[2]))continue;
-      const s=world.chunk,h=world.height;
-      zones.push({id:zones.length,type,rotated,x,z,width,depth,walls:[
-        [x*s,0,z*s,width*s,h,0],[x*s,0,(z+depth)*s,width*s,h,0],
-        [x*s,0,z*s,0,h,depth*s],[(x+width)*s,0,z*s,0,h,depth*s],
+      const s=world.chunk,h=height;
+      zones.push({id:zones.length,type,rotated,x,z,width,depth,...(layout.verticalBuildings?{y,height}:{}),walls:[
+        [x*s,y,z*s,width*s,h,0],[x*s,y,(z+depth)*s,width*s,h,0],
+        [x*s,y,z*s,0,h,depth*s],[(x+width)*s,y,z*s,0,h,depth*s],
       ]});placed=true;break;
     }
     if(!placed)throw Error(`Placement impossible pour ${type}`);

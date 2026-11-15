@@ -163,7 +163,7 @@ function visitLocal() {
     if(zone?.type==='house_wall'||zone?.type==='bridge_zone') {
       const x=zone.x*32+zone.width*16,z=zone.z*32+zone.depth*16;
       const house=data.houses.find(h=>h.zone===id);
-      const y=house?house.box[1]+Math.min(8,house.box[4]/2):160;
+      const y=house?house.box[1]+Math.min(8,house.box[4]/2):(zone.y||0)+160;
       camera.position.set(x,y,z);
       if(house)camera.lookAt(house.box[0]+house.box[3]/2,y,house.box[2]+house.box[5]/2);
       else camera.lookAt(x+(zone.rotated?0:100),y-5,z+(zone.rotated?100:0));
@@ -211,11 +211,11 @@ async function show(result,revision,generationSeconds) {
     const floor = new THREE.Mesh(plane, floorMaterials[zone.id % colors.length]);
     floor.rotation.x = -Math.PI/2;
     floor.scale.set(w, d, 1);
-    floor.position.set(x+w/2, WORLD_MIN_Y, z+d/2);
+    floor.position.set(x+w/2, WORLD_MIN_Y+(zone.y||0), z+d/2);
     content.add(floor);
-    for (const [wx, , wz, sx, sy, sz] of zone.walls) lines.push(wx, sy, wz, wx+sx, sy, wz+sz);
-    for (let xx = x; xx <= x+w; xx += 32) lines.push(xx, 0.1, z, xx, 0.1, z+d);
-    for (let zz = z; zz <= z+d; zz += 32) lines.push(x, 0.1, zz, x+w, 0.1, zz);
+    for (const [wx, wy, wz, sx, sy, sz] of zone.walls) lines.push(wx, wy+sy, wz, wx+sx, wy+sy, wz+sz);
+    for (let xx = x; xx <= x+w; xx += 32) lines.push(xx, (zone.y||0)+0.1, z, xx, (zone.y||0)+0.1, z+d);
+    for (let zz = z; zz <= z+d; zz += 32) lines.push(x, (zone.y||0)+0.1, zz, x+w, (zone.y||0)+0.1, zz);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));

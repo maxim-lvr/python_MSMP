@@ -1,3 +1,4 @@
+import {buildingAltitude,verticalNear,zoneVolume} from './generation_vertical.js';
 import {generateWideOpenArea, AREA as OPEN_AREA} from './wide_open_area.js';
 import {generateWideRestrictArea, AREA as RESTRICT_AREA} from './wide_restrict_area.js';
 import {generateHouseWallUltraDense,ULTRA_DENSE} from './house_wall_ultra_dense.js';
@@ -17,22 +18,23 @@ export function placeWideAreas(layout) {
     return a + Math.floor(state / 4294967296 * (b - a + 1));
   };
   const s = layout.world.chunk;
-  const occupied = layout.zones.map(z => [z.x * s, 0, z.z * s, z.width * s, layout.world.height, z.depth * s]);
+  const occupied = layout.zones.map(z => zoneVolume(z,layout.world));
   occupied.push(...(layout.buildingLong || []).map(z => z.box), ...(layout.snakes || []).flatMap(z => z.volumes));
   const areas = [];
   for (const [type, count] of Object.entries(layout.buildCounts?.wide||WIDE_COUNTS)) for (let index = 0; index < count; index++) {
+    const ultraHeight=layout.ultraDenseHeightRange?integer(...layout.ultraDenseHeightRange):layout.ultraDenseHeight||ULTRA_DENSE_AREA.height;
     const size = type === 'open' ? OPEN_AREA : type==='ultra_dense'?
-      {...ULTRA_DENSE_AREA,height:layout.ultraDenseHeight||ULTRA_DENSE_AREA.height}:RESTRICT_AREA;
+      {...ULTRA_DENSE_AREA,height:ultraHeight}:RESTRICT_AREA;
     let area;
     for (let attempt = 0; attempt < 12000; attempt++) {
       const rotation = integer(0, 1), sx = rotation ? size.width : size.length, sz = rotation ? size.length : size.width;
       const x = integer(4, Math.floor((layout.world.length - sx - 128) / s)) * s;
       const z = integer(4, Math.floor((layout.world.width - sz - 128) / s)) * s;
-      const y = Math.min(layout.world.height-size.height-8,16 + areas.length * 12), box = [x, y, z, sx, size.height, sz];
+      const y = layout.verticalBuildings?buildingAltitude(layout,areas.length,size.height,integer):Math.min(layout.world.height-size.height-8,16 + areas.length * 12), box = [x, y, z, sx, size.height, sz];
       const clearance=type==='ultra_dense'?64:16;
       if(layout.isSolidBox&&!layout.isSolidBox([x-clearance,0,z-clearance,sx+clearance*2,layout.world.height,sz+clearance*2]))continue;
       const gap = attempt < 3000 ? GAP : attempt < 8000 ? 96 : 64;
-      if (occupied.some(b => x < b[0] + b[3] + gap && x + sx + gap > b[0] &&
+      if (occupied.some(b => (!layout.verticalBuildings||verticalNear(box,b,24))&&x < b[0] + b[3] + gap && x + sx + gap > b[0] &&
         z < b[2] + b[5] + gap && z + sz + gap > b[2])) continue;
       area = {id: areas.length, index, type, seed: integer(0, 0xffffffff), rotation, box, size};
       break;

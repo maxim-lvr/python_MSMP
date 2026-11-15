@@ -1,3 +1,4 @@
+import {zoneVolume,nearestNetworkLevel} from './generation_vertical.js';
 import {mapWorld} from './world_config.js';
 
 const overlaps=(a,b)=>[0,1,2].every(i=>a[i]<b[i]+b[i+3]&&a[i]+a[i+3]>b[i]);
@@ -17,7 +18,7 @@ export function snakeAccessPlans(layout,houses,existingShafts,existingRoutes,req
     ...(layout.wideAreas||[]).map(z=>z.box),
     ...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])]),
     ...(layout.globalPipe?.volumes||[]),
-    ...layout.zones.map(z=>[z.x*32-4,0,z.z*32-4,z.width*32+8,world.height,z.depth*32+8])];
+    ...layout.zones.map(z=>zoneVolume(z,world,4))];
   const shafts=[...existingShafts],plans=[];
   const walks=existingRoutes.map(r=>[[r.a[0],r.a[2]],[r.b[0],r.b[2]]]);
   // Reserve every entrance before choosing any shaft, including doors processed later.
@@ -35,6 +36,9 @@ export function snakeAccessPlans(layout,houses,existingShafts,existingRoutes,req
     !obstacles.some(b=>overlaps(box,b));
   for(const door of entrances) {
     const [x,y,z]=door.pos,[nx,,nz]=door.normal,floor=y-1;
+    const networkY=layout.layeredTunnels?nearestNetworkLevel(layout,floor):0;
+    const bottom=layout.layeredTunnels?Math.max(0,Math.min(floor,networkY)-4):0;
+    const top=layout.layeredTunnels?Math.min(world.height,Math.max(floor,networkY)+8):world.height;
     const outside=[x+nx*6,z+nz*6];
     let chosen;
     for(const distance of (layout.isSolidBox?[16,24,40,64,96,128,176,240,320]:[40,64,96,128,176,240,320])) {
@@ -44,7 +48,7 @@ export function snakeAccessPlans(layout,houses,existingShafts,existingRoutes,req
         const sz=Math.floor((z+nz*distance+nx*shift)/32)*32+16;
         if(layout.isSolidBox&&![[0,-16],[-16,0],[16,0],[0,16]].some(([dx,dz])=>
           layout.isSolidBox([sx+dx-12,0,sz+dz-12,25,world.height,25])))continue;
-        if(!clear([sx-2,0,sz-2,5,world.height,5])||shafts.some(s=>Math.abs(s.x-sx)<4&&Math.abs(s.z-sz)<4))continue;
+        if(!clear([sx-2,bottom,sz-2,5,top-bottom,5])||shafts.some(s=>Math.abs(s.x-sx)<4&&Math.abs(s.z-sz)<4))continue;
         if(walks.some(points=>cutsBacking(points,{x:sx,z:sz})))continue;
         const end=[sx,sz-3];
         const paths=[
@@ -66,7 +70,7 @@ export function snakeAccessPlans(layout,houses,existingShafts,existingRoutes,req
           const neck=corridor([x,z],outside,floor);
           if(snakes.some(s=>s.id!==door.snake&&s.volumes.some(v=>overlaps(neck,v))))continue;
           chosen={snake:door.snake,buildingLong:door.buildingLong,bridgePort:door.bridgePort,trail:door.trail,end:door.end,
-            village:door.village,ultraDense:door.ultraDense,sourceDoor:door.sourceDoor,
+            bottom,top,village:door.village,ultraDense:door.ultraDense,sourceDoor:door.sourceDoor,
             room:door.room,door:door.pos,normal:door.normal,x:sx,z:sz,
             points:fullPoints};
           break;

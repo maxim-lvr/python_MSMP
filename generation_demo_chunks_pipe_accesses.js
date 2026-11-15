@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {mergeBoxes,overlaps,subtract} from './generation_demo_generator.js';
 import {pipeNetworkSegments} from './generation_demo_chunks_pipe.js';
 import {compactPipePath} from './generation_demo_chunks_pipe_paths.js';
@@ -209,7 +210,7 @@ export function createPipePlanner(data) {
   const inside=b=>[0,1,2].every(i=>b[i]>=1&&b[i]+b[i+3]<=[world.length,world.height,world.width][i]-1);
   const obstacles=spatial();
   for(const room of [...(data.denseRooms||[]),...(data.houses||[])])obstacles.add({box:room.box,owner:room});
-  for(const z of data.zones||[])obstacles.add({box:[z.x*32,0,z.z*32,z.width*32,world.height,z.depth*32]});
+  for(const z of data.zones||[])obstacles.add({box:zoneVolume(z,world)});
   for(const z of [...(data.buildingLong||[]),...(data.wideAreas||[]),...(data.settlements||[])]) {
     obstacles.add({box:z.box});
     for(const box of z.accessVolumes||[])obstacles.add({box});

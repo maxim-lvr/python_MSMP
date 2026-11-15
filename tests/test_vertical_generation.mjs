@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {CUBE_TEST} from '../generation_noise_prototype.js';
+import {placeWideAreas} from '../generation_demo_chunks_wide.js';
+import {populateChunkCore} from '../generation_demo_chunks_population.js';
+import {zoneVolume} from '../generation_vertical.js';
+const areas=placeWideAreas({seed:42,...CUBE_TEST,zones:[],isSolidBox:()=>true});
+assert.equal(areas.filter(a=>a.type==='open').length,9);
+assert.equal(areas.filter(a=>a.type==='restrict').length,9);
+assert(areas.filter(a=>a.type==='ultra_dense').every(a=>a.box[4]>=300&&a.box[4]<=400));
+assert(Math.max(...areas.map(a=>a.box[1]))>500);
+assert(areas.every(a=>a.box[1]>=16&&a.box[1]+a.box[4]<=984));
+const houses=[5,290].map(y=>({box:[20,y,-10,12,16,20],rear_door:{pos:[25,y+1,-10]}}));
+const layout={seed:42,world:{length:1536,width:1536,height:1000,chunk:32},zones:[{id:0,x:20,z:20,width:2,depth:2,y:280,height:350}],
+ layeredTunnels:true,networkLevelStep:96,verticalBuildings:true};
+const data=populateChunkCore(layout,{strips:{64:{height:320,houses,runs:[]}},bridges:[],denseSize:[6,10,5,8]},0,true,1);
+assert.equal(data.stats.components,1,'Altitude networks join one connected component on solid terrain');
+assert(data.ladderBoxes.every(b=>b[4]<=104),'No full-world ladder');
+assert(new Set(data.routes.filter(r=>r.main).map(r=>r.a[1])).size>=8,'Main tunnels fill the world vertically');
+assert(data.mainTunnelPaths.some(p=>p.points[0][1]!==p.points.at(-1)[1]),'Walkable stairs connect the networks');
+assert(data.houses.every(h=>h.box[1]>=280&&h.box[1]+h.box[4]<=630));
+assert.deepEqual(zoneVolume(layout.zones[0],layout.world),[640,280,640,64,350,64]);
+console.log('Vertical generation: 9 Open + 9 Restrict, variable heights, floating houses, short ladders and connected altitude networks OK');

@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {mergeBoxes,overlaps,subtract} from './generation_demo_generator.js';
 
 export const MAIN_TUNNEL_MIN_LENGTH=50;
@@ -22,7 +23,7 @@ function spatial(boxes) {
 
 export function prepareGalleries(layout,houses,shafts,routes) {
   const obstacles=spatial([...houses.map(h=>h.box),
-    ...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,layout.world.height,z.depth*32]),
+    ...layout.zones.map(z=>zoneVolume(z,layout.world)),
     ...(layout.snakes||[]).flatMap(s=>s.volumes),...(layout.buildingLong||[]).map(z=>z.box),
     ...(layout.wideAreas||[]).map(z=>z.box),...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])]),
     ...(layout.globalPipe?.volumes||[])]);
@@ -95,8 +96,8 @@ export function prepareGalleries(layout,houses,shafts,routes) {
   return {outer:shells,inner:air,shafts,contains:(x,y,z)=>query([x,y,z,1,1,1]).length>0};
 }
 
-export function galleryMeshes(galleries,routes,connections) {
-  const cuts=[...galleries.inner];
+export function galleryMeshes(galleries,routes,connections,extraAir=[]) {
+  const cuts=[...galleries.inner,...extraAir];
   const supports=[];
   for(const s of galleries.shafts||[]) {
     cuts.push([s.x,s.bottom+1,s.z,1,s.top-s.bottom+2,1]);

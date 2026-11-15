@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 // Ordered fills, compatible with the existing Minecraft JSON run importer.
 import {worldRun} from './world_config.js';
 
@@ -76,7 +77,7 @@ function* localMinecraftRuns(data) {
   if(!(data.air instanceof Set))throw Error('Export requires the actual excavated network air');
   const {height,chunk}=data.world;
   for(const z of data.zones)
-    yield run([z.x*chunk,0,z.z*chunk,z.width*chunk,height,z.depth*chunk],'air_zone','minecraft:air');
+    yield run(zoneVolume(z,data.world),'air_zone','minecraft:air');
   for(const h of data.houses)yield run(h.box,'air_house','minecraft:air');
   for(const r of data.denseRooms) {
     const [x,y,z,sx,sy,sz]=r.box;

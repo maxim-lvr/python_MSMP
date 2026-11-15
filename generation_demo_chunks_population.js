@@ -1,3 +1,5 @@
+import {zoneVolume,nearestNetworkLevel,networkLevels} from './generation_vertical.js';
+import {buildLayeredTunnels} from './generation_demo_chunks_layers.js';
 import {skinJobs,runSkinTask,skinRunBoxes} from './generation_demo_chunks_skin.js';
 import { mergeBoxes, subtract } from './generation_demo_generator.js';
 import { growDense } from './generation_demo_chunks_growth.js';
@@ -51,11 +53,11 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     const boxes=[], localHouses=[];
     if(zone.type==='bridge_zone') {
       const index=layout.zones.filter(z=>z.type==='bridge_zone').indexOf(zone);
-      const model=templates.bridges[index%templates.bridges.length];
+      const model=templates.bridges[index%templates.bridges.length],base=zone.y||0;
       wallGroups.push({zone:zone.id,walls:[],boxes:model.runs.map(r=>zone.rotated?[
-        zone.x*32+320-r.pos[2]-r.size[2],r.pos[1],zone.z*32+r.pos[0],
+        zone.x*32+320-r.pos[2]-r.size[2],base+r.pos[1],zone.z*32+r.pos[0],
         r.size[2],r.size[1],r.size[0],`zone_${r.kind}`]:[
-        r.pos[0]+zone.x*32,r.pos[1],r.pos[2]+zone.z*32,...r.size,`zone_${r.kind}`])});
+        r.pos[0]+zone.x*32,base+r.pos[1],r.pos[2]+zone.z*32,...r.size,`zone_${r.kind}`])});
       continue;
     }
     for (const side of Object.keys(normals)) {
@@ -66,12 +68,12 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
         const bands=layout.wallHouseBands||[null];
         for(const [bandIndex,band] of bands.entries()) {
           const stripHeight=strip.height||240;
-          const ceiling=Math.max(0,layout.world.height-stripHeight);
+          const ceiling=Math.max(0,(zone.height??layout.world.height)-stripHeight);
           const minShift=band===null?Math.min(16,ceiling):Math.min(band,ceiling);
           // Keep the whole template below the next band, including its random offset.
           const nextBand=bands[bandIndex+1]??layout.world.height;
           const maxShift=band===null?ceiling:Math.min(band+24,ceiling,nextBand-stripHeight);
-          const shiftY=integer(minShift,maxShift),mirror=integer(0,1)?size:null;
+          const shiftY=(zone.y||0)+integer(minShift,maxShift),mirror=integer(0,1)?size:null;
           for (const box of prepared[size]) boxes.push(transform(box,side,zone,offset,shiftY,mirror));
           for (const h of strip.houses) {
             const house={id:houses.length,zone:zone.id,side,box:transform(h.box,side,zone,offset,shiftY,mirror).slice(0,6)};
@@ -85,11 +87,12 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
         offset+=size;
       }
     }
+    const base=zone.y||0,height=zone.height??layout.world.height;
     let walls = [
-      [zone.x*32,0,zone.z*32,zone.width*32,layout.world.height,1,'wall'],
-      [zone.x*32,0,(zone.z+zone.depth)*32-1,zone.width*32,layout.world.height,1,'wall'],
-      [zone.x*32,0,zone.z*32+1,1,layout.world.height,zone.depth*32-2,'wall'],
-      [(zone.x+zone.width)*32-1,0,zone.z*32+1,1,layout.world.height,zone.depth*32-2,'wall'],
+      [zone.x*32,base,zone.z*32,zone.width*32,height,1,'wall'],
+      [zone.x*32,base,(zone.z+zone.depth)*32-1,zone.width*32,height,1,'wall'],
+      [zone.x*32,base,zone.z*32+1,1,height,zone.depth*32-2,'wall'],
+      [(zone.x+zone.width)*32-1,base,zone.z*32+1,1,height,zone.depth*32-2,'wall'],
     ];
     for (const house of localHouses) walls=walls.flatMap(w=>subtract(w,house.box));
     const crossBridges=addCavityCrossBridges(zone,localHouses,boxes,layout.seed,
@@ -134,8 +137,9 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     if(main||length>MAIN_TUNNEL_MIN_LENGTH)for(let i=start;i<routes.length;i++)routes[i].main=true;
   };
   const shaftFor=(x,z,top)=>{
-    const id=cell(x,z);
-    const shaft=shafts.get(id)||{id,x,z,top:NETWORK_FLOOR,bottom:top,ports:[]};
+    const networkY=layout.layeredTunnels?nearestNetworkLevel(layout,top):NETWORK_FLOOR;
+    const id=cell(x,z)+(layout.layeredTunnels?(networkLevels(layout).indexOf(networkY)*2+(top<networkY?0:1))*GRID*GRID:0);
+    const shaft=shafts.get(id)||{id,x,z,top:layout.layeredTunnels?top:NETWORK_FLOOR,bottom:top,...(layout.layeredTunnels?{networkY}:{}),ports:[]};
     shaft.top=Math.max(shaft.top,top);shaft.bottom=Math.min(shaft.bottom,top); shafts.set(id,shaft);
     return shaft;
   };
@@ -199,7 +203,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
   const jobs=[];
   if(density!==null) {
     if(!Number.isInteger(density)||density<1||density>20)throw Error('Density must be between 1 and 20');
-    count=Math.round(blocked.reduce((n,value)=>n+(value===0),0)*density/16);
+    count=Math.round(blocked.reduce((n,value)=>n+(value===0),0)*density/16*(layout.denseCountScale||1));
   } else {
     for(let attempt=0;attempt<20000&&jobs.length<count;attempt++) {
       const id=integer(2,GRID-3)*GRID+integer(2,GRID-3);
@@ -235,6 +239,42 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
   }
   if(density===null&&denseRooms.length!==count)throw Error('Not enough space for dense rooms');
 
+  const stairFloors=new Map(),stairClearance=[];
+  const stairs=(a,b,ya,yb,protectedRamp=false)=>{
+    const middle=[b[0],a[1]],path=[];
+    for(const [p,q] of [[a,middle],[middle,b]]) {
+      const n=Math.abs(q[0]-p[0])+Math.abs(q[1]-p[1]);
+      for(let i=0;i<n;i++)path.push([p[0]+Math.sign(q[0]-p[0])*i,p[1]+Math.sign(q[1]-p[1])*i]);
+    }
+    path.push(b);
+    let run;
+    const hold=Math.max(0,Math.min(protectedRamp?16:4,Math.floor((path.length-1-Math.abs(yb-ya))/2)));
+    for(let i=0;i<path.length;i++) {
+      const progress=Math.max(0,Math.min(1,(i-hold)/Math.max(1,path.length-1-2*hold)));
+      const y=ya+Math.round((yb-ya)*progress),[x,z]=path[i];
+      for(let h=1;h<=3;h++)addAir(x,y+h,z);
+      if(protectedRamp) {
+        const next=path[i+1]||path[i-1]||path[i],alongX=next[0]!==x;
+        for(let offset=-2;offset<=2;offset++) {
+          const px=x+(alongX?0:offset),pz=z+(alongX?offset:0);
+          stairFloors.set(key(px,y,pz),[px,y,pz,1,1,1,'main_tunnel']);
+          for(let h=1;h<=3;h++)addAir(px,y+h,pz);
+        }
+        stairClearance.push([x-(alongX?0:2),y+1,z-(alongX?2:0),alongX?1:5,3,alongX?5:1]);
+      }
+      const p=[x,y,z];
+      if(run&&run.a[1]===y&&(run.a[0]===x||run.a[2]===z))run.b=p;
+      else {
+        const neighbor=path[i+1]||path[i-1]||path[i];
+        run={a:p,b:p,axis:neighbor[0]!==x?0:2};routes.push(run);
+      }
+    }
+  };
+  let localNetwork,edges=[],mainTunnelPaths=[];
+  if(layout.layeredTunnels) {
+    const network=buildLayeredTunnels({layout,houses,shafts:[...shafts.values()],routes,polyline,stairs,addAir,atHouse,ladders,progress});
+    edges=network.edges;mainTunnelPaths=network.paths;localNetwork={roots:network.roots};
+  }else {
   // Route a single connected underground tree around the cavities, never across them.
   const g=density===null?GRID:Math.floor(S/16);
   const graphBlocked=density===null?blocked:new Uint8Array(g*g);
@@ -265,7 +305,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     if(terminal===undefined)throw Error('Ladder has no free lower entrance');
     terminals.push(terminal); shaft.terminal=terminal;
   }
-  const localNetwork=density===null?null:localTunnelNetwork(g,graphBlocked,terminals,layout.seed,!!layout.isSolidBox);
+  localNetwork=density===null?null:localTunnelNetwork(g,graphBlocked,terminals,layout.seed,!!layout.isSolidBox);
   const visited=new Uint8Array(graphBlocked.length),parent=localNetwork?.parents||new Int32Array(graphBlocked.length).fill(-1);
   const queue=new Int32Array(graphBlocked.length);
   let head=0,tail=0;
@@ -280,7 +320,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
       visited[next]=1;parent[next]=id;queue[tail++]=next;
     }
   }
-  const tree=new Set(localNetwork?.roots||[terminals[0]]),edges=[];
+  const tree=new Set(localNetwork?.roots||[terminals[0]]);
   const heights=new Int16Array(graphBlocked.length).fill(NETWORK_FLOOR);
   let caps;
   if(density!==null) {
@@ -336,27 +376,6 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     }
     return points.get(id);
   };
-  const stairs=(a,b,ya,yb)=>{
-    const middle=[b[0],a[1]],path=[];
-    for(const [p,q] of [[a,middle],[middle,b]]) {
-      const n=Math.abs(q[0]-p[0])+Math.abs(q[1]-p[1]);
-      for(let i=0;i<n;i++)path.push([p[0]+Math.sign(q[0]-p[0])*i,p[1]+Math.sign(q[1]-p[1])*i]);
-    }
-    path.push(b);
-    let run;
-    const hold=Math.max(0,Math.min(4,Math.floor((path.length-1-Math.abs(yb-ya))/2)));
-    for(let i=0;i<path.length;i++) {
-      const progress=Math.max(0,Math.min(1,(i-hold)/Math.max(1,path.length-1-2*hold)));
-      const y=ya+Math.round((yb-ya)*progress),[x,z]=path[i];
-      for(let h=1;h<=3;h++)addAir(x,y+h,z);
-      const p=[x,y,z];
-      if(run&&run.a[1]===y&&(run.a[0]===x||run.a[2]===z))run.b=p;
-      else {
-        const neighbor=path[i+1]||path[i-1]||path[i];
-        run={a:p,b:p,axis:neighbor[0]!==x?0:2};routes.push(run);
-      }
-    }
-  };
   for(const terminal of terminals) {
     if(!visited[terminal])throw Error('Underground network is disconnected');
     let id=terminal;
@@ -371,7 +390,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
       .flatMap(z=>[z.box,...(z.accessVolumes||[])]),...(layout.globalPipe?.volumes||[]),
     ...houses.map(h=>h.box),...routes.map(({a,b})=>[Math.min(a[0],b[0])-3,a[1],Math.min(a[2],b[2])-3,
       Math.abs(a[0]-b[0])+7,8,Math.abs(a[2]-b[2])+7])]);
-  const mainTunnelPaths=density===null?[]:optimizeMainTunnelPaths({size:g,blocked:graphBlocked,
+  mainTunnelPaths=density===null?[]:optimizeMainTunnelPaths({size:g,blocked:graphBlocked,
     edges,terminals,heights,caps,clear:clearMain});
   const mainStart=routes.length;
   if(density===null)for(const [a,b] of edges)line(center(a),center(b),NETWORK_FLOOR);
@@ -395,6 +414,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     }
     ladders.set(shaft.id,[shaft.x,shaft.bottom+1,shaft.z,1,shaft.top-shaft.bottom,1,'ladder']);
   }
+  }
   let growthConnections=[];
   const galleries=prepareGalleries(layout,houses,[...shafts.values()],routes);
   if(density!==null) {
@@ -416,6 +436,9 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
     }
   }
 
+  // Landing floors take precedence over crossing gallery air, while stair headroom stays open.
+  for(const k of stairFloors.keys()){air.delete(k);snakeEntries.add(k);}
+
   // Skin calculations share no mutable growth state and run independently by spatial tile.
   progress('Construction des parois des tunnels...');
   const skinWork=skinJobs({air,brickShell,snakeEntries,houses,denseRooms,galleries,
@@ -425,8 +448,8 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
   if(diagnostics)for(const part of skin){for(const k of part.tunnel)solid.set(k,'tunnel');for(const k of part.dense)solid.set(k,'dense');}
   for(const shaft of shafts.values())for(let y=shaft.bottom+1;y<=shaft.top;y++)
     if(air.has(key(shaft.x,y,shaft.z+1)))throw Error('Missing ladder backing');
-  const mainBoxes=galleryMeshes(galleries,routes,growthConnections);
-  const networkBoxes=mergeBoxes(skinRunBoxes(skin,layout.world)).concat(denseBoxes,mainBoxes);
+  const mainBoxes=galleryMeshes(galleries,routes,growthConnections,[...stairClearance,...stairFloors.values()]);
+  const networkBoxes=mergeBoxes(skinRunBoxes(skin,layout.world)).concat(denseBoxes,mainBoxes,[...stairFloors.values()]);
   const buildingConnections=ports.filter(p=>p.buildingLong!==undefined).length;
   const result={...layout,houses,ports,wallGroups,denseRooms,shafts:[...shafts.values()],
     networkBoxes,ladderBoxes:[...ladders.values()],routes,edges,mainTunnelPaths,growthConnections,

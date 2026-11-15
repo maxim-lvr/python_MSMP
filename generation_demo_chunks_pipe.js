@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {localTunnelNetwork} from './generation_demo_chunks_network.js';
 import {mergeBoxes, overlaps, subtract} from './generation_demo_generator.js';
 import {expandPipeNetwork} from './generation_demo_chunks_pipe_network.js';
@@ -17,7 +18,7 @@ export function generatePipeTrunk(layout) {
     return a + Math.floor(state / 4294967296 * (b - a + 1));
   };
   const {world} = layout, top = world.height - 12;
-  const obstacles = [...layout.zones.map(z => [z.x * 32 - 80, 0, z.z * 32 - 80, z.width * 32 + 160, world.height, z.depth * 32 + 160]),
+  const obstacles = [...layout.zones.map(z=>zoneVolume(z,world,80)),
     ...(layout.buildingLong || []).map(z => z.box), ...(layout.wideAreas || []).map(z => z.box),
     ...(layout.settlements || []).flatMap(z => [z.box,...(z.accessVolumes||[])]),
     ...(layout.pipeAccessReservations || [])];
@@ -97,7 +98,7 @@ export function generateGlobalPipe(layout,progress=()=>{}) {
   // Entrances take priority over decorative pipes, including their vertical access shafts.
   const plans = snakeAccessPlans({...layout, globalPipe:null}, [], [], []);
   const pipeAccessReservations = plans.flatMap(plan => [
-    [plan.x-2,0,plan.z-2,5,layout.world.height,5],
+    [plan.x-2,plan.bottom??0,plan.z-2,5,(plan.top??layout.world.height)-(plan.bottom??0),5],
     ...plan.points.slice(1).map((b,i) => {
       const a=plan.points[i];
       return [Math.min(a[0],b[0])-1,plan.door[1]-1,Math.min(a[1],b[1])-1,

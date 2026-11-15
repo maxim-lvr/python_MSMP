@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {localTunnelNetwork} from './generation_demo_chunks_network.js';
 import {overlaps} from './generation_demo_generator.js';
 import {compactPipePath as compact,validPipePath,validPipeConnection,pointOnPipePaths} from './generation_demo_chunks_pipe_paths.js';
@@ -11,7 +12,7 @@ export function expandPipeNetwork(layout,trunk,progress=()=>{}) {
   let state=(layout.seed^0x4e455450)>>>0;
   const integer=(a,b)=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return a+Math.floor(state/4294967296*(b-a+1));};
   const {world}=layout, limits=[world.length,world.height,world.width];
-  const obstacles=[...layout.zones.map(z=>({box:[z.x*32-80,0,z.z*32-80,z.width*32+160,world.height,z.depth*32+160]})),
+  const obstacles=[...layout.zones.map(z=>({box:zoneVolume(z,world,80)})),
     ...(layout.buildingLong||[]).map(z=>({box:z.box})),...(layout.wideAreas||[]).map(z=>({box:z.box,wide:z.id})),
     ...(layout.settlements||[]).flatMap(z=>[z.box,...(z.accessVolumes||[])].map(box=>({box}))),
     ...(layout.snakes||[]).flatMap(z=>z.volumes.map(box=>({box}))),
@@ -188,7 +189,7 @@ export function expandPipeNetwork(layout,trunk,progress=()=>{}) {
     visits.push({label:`Raccord Wide Open ${zone.index+1}`,pos:links[0].pos});
   }
   // Grow towards actual zones, not just random points that may all lie in blocked sectors.
-  const coverageBounds=[...layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,world.height,z.depth*32]),
+  const coverageBounds=[...layout.zones.map(z=>zoneVolume(z,world)),
     ...(layout.buildingLong||[]).map(z=>z.box),...(layout.wideAreas||[]).map(z=>z.box),
     ...(layout.snakes||[]).flatMap(s=>s.volumes.filter((_,i)=>i%3===0))];
   const proximity=(box,source=paths)=>Math.min(...source.flatMap(path=>path.slice(1).map((b,i)=>{

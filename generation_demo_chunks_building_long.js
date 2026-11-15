@@ -1,3 +1,4 @@
+import {buildingAltitude,verticalNear,zoneVolume} from './generation_vertical.js';
 import { mergeBoxes } from './generation_demo_generator.js';
 
 export const BUILDING_LONG_COUNT = 4;
@@ -9,16 +10,16 @@ const near=(a,b)=>a[0]<b[0]+b[3]+GAP&&a[0]+a[3]+GAP>b[0]&&
 export function placeBuildingLong(layout) {
   let state=(layout.seed^0x4c4f4e47)>>>0;
   const integer=(a,b)=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return a+Math.floor(state/4294967296*(b-a+1));};
-  const obstacles=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,layout.world.height,z.depth*32]),zones=[];
+  const obstacles=layout.zones.map(z=>zoneVolume(z,layout.world)),zones=[];
   for(const zone of layout.wideAreas||[])obstacles.push(zone.box);
   const count=layout.buildCounts?.long??BUILDING_LONG_COUNT;
   for(let attempt=0;attempt<12000*count/4&&zones.length<count;attempt++) {
     const length=attempt<8000?BUILDING_LONG_LENGTHS[integer(0,3)]:800,rotation=integer(0,1);
     const sx=rotation?WIDTH:length,sz=rotation?length:WIDTH;
     const x=integer(4,Math.floor((layout.world.length-sx-128)/32))*32,z=integer(4,Math.floor((layout.world.width-sz-128)/32))*32;
-    const y=16+(zones.length%4)*32,box=[x,y,z,sx,HEIGHT,sz];
+    const y=layout.verticalBuildings?buildingAltitude(layout,zones.length,HEIGHT,integer):16+(zones.length%4)*32,box=[x,y,z,sx,HEIGHT,sz];
     if(layout.isSolidBox&&!layout.isSolidBox([x-64,0,z-64,sx+128,layout.world.height,sz+128]))continue;
-    if(obstacles.some(b=>near(box,b)))continue;
+    if(obstacles.some(b=>(!layout.verticalBuildings||verticalNear(box,b,24))&&near(box,b)))continue;
     zones.push({id:zones.length,seed:integer(0,0xffffffff),length,rotation,box});obstacles.push(box);
   }
   if(zones.length!==count)throw Error(`Pas assez de place pour les ${count} Building Long`);

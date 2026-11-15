@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {mapWorld} from './world_config.js';
 
 // Same parent/child growth principle as map_builde_dense_1.horizontal_child.
@@ -27,8 +28,8 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
   for(const zone of layout.settlements||[])for(const box of [zone.box,...(zone.accessVolumes||[])])insert({box});
   for(const box of layout.globalPipe?.volumes||[])insert({box});
   for(const snake of layout.snakes||[])for(const box of snake.volumes)insert({box});
-  // Cavities span the entire height. Their boundaries can never be crossed by growth.
-  const cavities=layout.zones.map(z=>[z.x*32,0,z.z*32,z.width*32,world.height,z.depth*32]);
+  // Finite cavities permit growth above and below suspended buildings.
+  const cavities=layout.zones.map(z=>zoneVolume(z,world));
   const cavityBuckets=new Map();
   for(const b of cavities)for(let x=Math.floor(b[0]/128);x<=Math.floor((b[0]+b[3]-1)/128);x++)
     for(let z=Math.floor(b[2]/128);z<=Math.floor((b[2]+b[5]-1)/128);z++) {

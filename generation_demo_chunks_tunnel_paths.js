@@ -72,7 +72,7 @@ export function optimizeMainTunnelPaths({size,blocked,edges,terminals,heights,ca
   return paths;
 }
 
-export function mainTunnelClearance(boxes) {
+export function mainTunnelClearance(boxes,{radius=3,height=8}={}) {
   const buckets=new Map();
   function* keys(box) {
     for(let x=Math.floor(box[0]/64);x<=Math.floor((box[0]+box[3]-1)/64);x++)
@@ -83,8 +83,8 @@ export function mainTunnelClearance(boxes) {
     if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(box);
   }
   return (a,b)=>{
-    const box=[Math.min(a[0],b[0])-3,Math.min(a[1],b[1]),Math.min(a[2],b[2])-3,
-      Math.abs(a[0]-b[0])+7,Math.abs(a[1]-b[1])+8,Math.abs(a[2]-b[2])+7];
+    const box=[Math.min(a[0],b[0])-radius,Math.min(a[1],b[1]),Math.min(a[2],b[2])-radius,
+      Math.abs(a[0]-b[0])+radius*2+1,Math.abs(a[1]-b[1])+height,Math.abs(a[2]-b[2])+radius*2+1];
     for(const key of keys(box))for(const other of buckets.get(key)||[])
       if([0,1,2].every(i=>box[i]<other[i]+other[i+3]&&box[i]+box[i+3]>other[i]))return false;
     return true;

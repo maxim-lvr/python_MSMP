@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {excavatedRuns} from './generation_demo_chunks_export.js';
 import {pipeBoreBoxes} from './generation_demo_chunks_pipe.js';
 import {worldRun} from './world_config.js';
@@ -25,7 +26,7 @@ function* localNoiseMinecraftRuns(data,mask,walls) {
   if(!(data.air instanceof Set))throw Error('Missing excavated network air');
   const air=(b,kind)=>operation(b,kind,AIR), ladders=[];
   for(const b of mask.voidBoxes)yield air(b,'air_noise');
-  for(const z of data.zones)yield air([z.x*32,0,z.z*32,z.width*32,data.world.height,z.depth*32],'air_zone');
+  for(const z of data.zones)yield air(zoneVolume(z,data.world),'air_zone');
   for(const h of data.houses)yield air(h.box,'air_house');
   for(const r of data.denseRooms) {
     const [x,y,z,sx,sy,sz]=r.box;

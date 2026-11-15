@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import { generateSnake, HEIGHT } from './house_tunnel_snake_generator.js';
 import { localTunnelNetwork } from './generation_demo_chunks_network.js';
 import { mergeBoxes } from './generation_demo_generator.js';
@@ -50,9 +51,9 @@ export function generateDemoSnakes(layout) {
   let state=(layout.seed^0x534e414b)>>>0;
   const integer=(a,b)=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return a+Math.floor(state/4294967296*(b-a+1));};
   // Leave room around cavity houses, rear doors and their ladder approaches.
-  const obstacles=layout.zones.map(z=>[z.x*32-100,0,z.z*32-100,z.width*32+200,layout.world.height,z.depth*32+200]);
-  for(const {box:[x,,z,sx,,sz]} of layout.buildingLong||[])obstacles.push([x-100,0,z-100,sx+200,layout.world.height,sz+200]);
-  for(const {box:[x,,z,sx,,sz]} of layout.wideAreas||[])obstacles.push([x-100,0,z-100,sx+200,layout.world.height,sz+200]);
+  const obstacles=layout.zones.map(z=>zoneVolume(z,layout.world,100));
+  for(const {box:[x,by,z,sx,sy,sz]} of layout.buildingLong||[])obstacles.push([x-100,layout.verticalBuildings?by:0,z-100,sx+200,layout.verticalBuildings?sy:layout.world.height,sz+200]);
+  for(const {box:[x,by,z,sx,sy,sz]} of layout.wideAreas||[])obstacles.push([x-100,layout.verticalBuildings?by:0,z-100,sx+200,layout.verticalBuildings?sy:layout.world.height,sz+200]);
   const snakes=[];
   const localRoutes=layout.snakeVoidCrossings!==undefined;
   for(let id=0;id<(layout.buildCounts?.snakes??SNAKE_COUNT);id++) {
@@ -62,7 +63,7 @@ export function generateDemoSnakes(layout) {
     for(let node=0;node<blocked.length;node++) {
       const p=point(node);
       // Inflate by half a routing cell so entire edges, not only nodes, stay clear.
-      const margin=STEP/2+20,area=[p.x-margin,0,p.z-margin,margin*2,layout.world.height,margin*2];
+      const margin=STEP/2+20,area=[p.x-margin,layout.verticalBuildings?y-8:0,p.z-margin,margin*2,layout.verticalBuildings?HEIGHT+16:layout.world.height,margin*2];
       if(obstacles.some(b=>overlap(area,b))||sameBand.some(b=>overlap(area,b))||(!localRoutes&&layout.isSolidBox&&!layout.isSolidBox(area)))blocked[node]=1;
     }
     let route, fallback=[];

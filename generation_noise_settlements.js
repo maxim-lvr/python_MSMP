@@ -1,3 +1,4 @@
+import {zoneVolume} from './generation_vertical.js';
 import {generateWaterRoomZone,WATER_ROOM_AREA} from './water_room_zone.js';
 import {generateVillagerCity,VILLAGER_CITY_AREA} from './villager_city.js';
 import {overlaps} from './generation_demo_generator.js';
@@ -13,7 +14,7 @@ export function placeNoiseSettlements(layout,mask) {
     state=(Math.imul(state,1664525)+1013904223)>>>0;
     return a+Math.floor(state/4294967296*(b-a+1));
   };
-  const occupied=[...layout.zones.map(z=>[z.x*32-80,0,z.z*32-80,z.width*32+160,layout.world.height,z.depth*32+160]),
+  const occupied=[...layout.zones.map(z=>zoneVolume(z,layout.world,80)),
     ...(layout.buildingLong||[]).map(z=>padded(z.box,64)),
     ...(layout.wideAreas||[]).map(z=>padded(z.box,32)),
     ...(layout.snakes||[]).flatMap(s=>s.volumes.map(b=>padded(b,32)))];
