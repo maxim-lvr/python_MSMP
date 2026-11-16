@@ -20,6 +20,7 @@ from map_builder_house import DEFAULT_OUT as HOUSE_DEFAULT_OUT, build_payload as
 from generation_demo_chunks_templates import wall_templates, building_long_template
 from generation_cache_manifest import generation_manifest
 from generation_model_cache import model_file, SourcesChanged
+from nbt_preview import tunnel_preview
 
 
 DENSE_CACHE: dict[tuple[int, int, int, int, int], dict] = {}
@@ -33,6 +34,14 @@ class HouseZoneHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/nbt-preview":
+            try:
+                self.send_json(tunnel_preview())
+            except FileNotFoundError:
+                self.send_error(404, "Missing imports_nbt/tunnel_long.nbt")
+            except (ValueError, KeyError, EOFError) as error:
+                self.send_error(400, str(error))
+            return
         if parsed.path == "/api/generation-manifest":
             try:
                 mode = parse_qs(parsed.query).get("mode", ["noise"])[0]

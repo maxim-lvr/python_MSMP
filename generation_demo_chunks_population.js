@@ -47,8 +47,12 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
   const houses=[], ports=[], wallGroups=[];
   const crossingObstacles=[...(layout.snakes||[]).flatMap(s=>s.volumes),
     ...(layout.globalPipe?.volumes||[])];
-  const prepared = Object.fromEntries(Object.entries(templates.strips).map(([length,t]) => [length,
-    mergeBoxes(t.runs.filter(r=>r.kind!=='rear_door').map(r=>[...r.pos,...r.size,r.kind]))]));
+  const prepared=new Map();
+  const stripBoxes=strip=>{
+    if(!prepared.has(strip))prepared.set(strip,
+      mergeBoxes(strip.runs.filter(r=>r.kind!=='rear_door').map(r=>[...r.pos,...r.size,r.kind])));
+    return prepared.get(strip);
+  };
   for (const zone of layout.zones) {
     const boxes=[], localHouses=[];
     if(zone.type==='bridge_zone') {
@@ -60,13 +64,17 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
         r.pos[0]+zone.x*32,base+r.pos[1],r.pos[2]+zone.z*32,...r.size,`zone_${r.kind}`])});
       continue;
     }
-    for (const side of Object.keys(normals)) {
+    const variants=zone.type==='house_wall'&&templates.wallStrips?.length?[...templates.wallStrips]:null;
+    if(variants)for(let i=variants.length-1;i>0;i--){
+      const j=integer(0,i);[variants[i],variants[j]]=[variants[j],variants[i]];
+    }
+    for (const [faceIndex,side] of Object.keys(normals).entries()) {
       const length = (side==='north'||side==='south' ? zone.width : zone.depth)*32;
       let offset=length===64?0:16;
       for (const size of stripsFor(length-offset*2)) {
-        const strip=templates.strips[size];
         const bands=layout.wallHouseBands||[null];
         for(const [bandIndex,band] of bands.entries()) {
+          const strip=variants?variants[(faceIndex+bandIndex*4)%variants.length]:templates.strips[size];
           const stripHeight=strip.height||240;
           const ceiling=Math.max(0,(zone.height??layout.world.height)-stripHeight);
           const minShift=band===null?Math.min(16,ceiling):Math.min(band,ceiling);
@@ -74,7 +82,7 @@ function* populationSteps(layout, templates, count = DENSE_ROOM_COUNT, diagnosti
           const nextBand=bands[bandIndex+1]??layout.world.height;
           const maxShift=band===null?ceiling:Math.min(band+24,ceiling,nextBand-stripHeight);
           const shiftY=(zone.y||0)+integer(minShift,maxShift),mirror=integer(0,1)?size:null;
-          for (const box of prepared[size]) boxes.push(transform(box,side,zone,offset,shiftY,mirror));
+          for (const box of stripBoxes(strip)) boxes.push(transform(box,side,zone,offset,shiftY,mirror));
           for (const h of strip.houses) {
             const house={id:houses.length,zone:zone.id,side,box:transform(h.box,side,zone,offset,shiftY,mirror).slice(0,6)};
             houses.push(house); localHouses.push(house);

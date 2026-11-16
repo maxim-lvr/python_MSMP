@@ -1,16 +1,30 @@
-import {overlaps,subtract} from './generation_demo_generator.js';
+import {overlaps} from './generation_demo_generator.js';
 import {snakeAccessPlans} from './generation_demo_chunks_snake_ports.js';
 
 export function connectVillageToWalls(area,mask,layout,occupied,settlements) {
   const axis=area.rotation?0:2,lateral=axis===0?2:0;
-  const ports=[],decks=[],volumes=[],cuts=[];
+  const ports=[],decks=[],volumes=[];
+  // Attach wall bridges to exposed two-wide edges of the existing walkway
+  // network. House shells and their single entrance are never cut here.
+  const cells=new Map();
+  for(const b of area.boxes)if(['village_bridge','village_deck'].includes(b[6]))
+    for(let x=b[0];x<b[0]+b[3];x++)for(let z=b[2];z<b[2]+b[5];z++) {
+      const p=[x,b[1],z];cells.set(p.join(','),p);
+    }
   for(const sign of [-1,1]) {
-    const houses=[...area.houses].sort((a,b)=>sign*(b.box[axis]-a.box[axis]));
+    const anchors=[...cells.values()].filter(p=>{
+      const neighbor=[...p];neighbor[lateral]++;
+      if(!cells.has(neighbor.join(',')))return false;
+      return [p,neighbor].every(cell=>{
+        const outside=[...cell];outside[axis]+=sign;
+        return !cells.has(outside.join(','));
+      });
+    }).sort((a,b)=>sign*(b[axis]-a[axis]));
     let chosen;
-    for(const house of houses) {
-      const h=house.box,facade=h[axis]+(sign>0?h[axis+3]-1:0);
-      for(let along=h[lateral]+1;along<=h[lateral]+h[lateral+3]-3;along++) {
-        const start=[0,h[1],0];start[axis]=facade+sign;start[lateral]=along;
+    for(const anchor of anchors) {
+        const headroom=[...anchor,1,3,1];headroom[1]++;headroom[lateral+3]=2;
+        if(area.boxes.some(b=>overlaps(headroom,b)))continue;
+        const start=[...anchor];start[axis]+=sign;
         let wall;
         for(let step=0;step<400;step++) {
           const p=[...start];p[axis]+=step*sign;
@@ -30,12 +44,9 @@ export function connectVillageToWalls(area,mask,layout,occupied,settlements) {
         const volume=deck.slice(0,6);volume[4]=4;
         if([...occupied,...area.boxes,...volumes].some(b=>overlaps(volume,b)))continue;
         const door=[...wall,1,3,1];door[1]++;door[lateral+3]=2;
-        const houseDoor=[...door];houseDoor[axis]=facade;
-        const interior=[...houseDoor];interior[axis]-=sign;
-        if(area.boxes.some(b=>overlaps(interior,b)))continue;
         const normal=[0,0,0];normal[axis]=sign;
-        const port={village:area.id,side:sign<0?'first':'second',house:house.id,
-          pos:door.slice(0,3),normal,door,houseDoor,deck,volume};
+        const port={village:area.id,side:sign<0?'first':'second',bridgeAnchor:[...anchor],
+          pos:door.slice(0,3),normal,door,deck,volume};
         const candidate={...area,ports:[...ports,port],accessVolumes:[...volumes,volume]};
         try {
           snakeAccessPlans({...layout,settlements:[...settlements,candidate]},[],[],[],candidate.ports);
@@ -44,13 +55,9 @@ export function connectVillageToWalls(area,mask,layout,occupied,settlements) {
           continue;
         }
         chosen=port;break;
-      }
-      if(chosen)break;
     }
     if(!chosen)return null;
-    ports.push(chosen);decks.push(chosen.deck);volumes.push(chosen.volume);cuts.push(chosen.houseDoor);
+    ports.push(chosen);decks.push(chosen.deck);volumes.push(chosen.volume);
   }
-  let boxes=area.boxes;
-  for(const cut of cuts)boxes=boxes.flatMap(b=>subtract(b,cut));
-  return {...area,boxes:[...boxes,...decks],ports,accessVolumes:volumes};
+  return {...area,boxes:[...area.boxes,...decks],ports,accessVolumes:volumes};
 }

@@ -134,7 +134,9 @@ export function growDense({layout,houses,shafts,routes,galleries,target,integer,
     columns.set(column(b),(columns.get(column(b))||0)+1);
     heightCounts[Math.floor(b[1]/50)]++;
     for(let i=0;i<path.length;i++) {
-      const [x,y,z]=path[i],clearance=i+1<path.length&&path[i+1][1]>y?3:2;
+      const [x,y,z]=path[i];
+      // A player's body spans both cells of a step, whichever way it is walked.
+      const clearance=2+Math.max(0,(path[i-1]?.[1]??y)-y,(path[i+1]?.[1]??y)-y);
       for(let h=1;h<=clearance;h++)addAir(x,y+h,z);
       insert({box:volumes[i]});
     }

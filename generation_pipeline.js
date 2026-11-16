@@ -10,7 +10,7 @@ import {generateGlobalPipe} from './generation_demo_chunks_pipe.js';
 import {populateChunkCore,populateChunkCoreParallel} from './generation_demo_chunks_population.js';
 import {finishChunkPopulation,finishChunkPopulationParallel} from './generation_demo_chunks_houses.js';
 import {GenerationCache,generationKeys,openGenerationStore} from './generation_cache.js';
-import {prototypeNoiseImage} from './generation_noise_prototype.js';
+import {prototypeNoiseImage,POC_TEST} from './generation_noise_prototype.js';
 
 async function loadNoise() {
   const response=await fetch('./noisemap_10000_redone_16.png',{cache:'no-store'});
@@ -25,7 +25,8 @@ async function loadNoise() {
 export async function prepareGeneration(manifest,settings,progress=()=>{},{store,noiseLoader=loadNoise,jsonLoader,poolFactory=(count,revision)=>new GenerationPool(count,revision)}={}) {
   const started=performance.now(),noise=manifest.mode==='noise';
   const cube=noise&&settings.profile==='cube1000';
-  if(cube)manifest={...manifest,mode:'noise-cube1000'};
+  const poc=noise&&settings.profile==='poc2000',prototype=poc?POC_TEST:cube?CUBE_TEST:null;
+  if(prototype)manifest={...manifest,mode:`noise-${settings.profile}`};
   const json=jsonLoader|| (async url=>{
     const response=await fetch(url,{cache:'no-store'});
     if(response.status===409)throw Object.assign(Error('Generation sources changed'),{stale:true});
@@ -39,15 +40,16 @@ export async function prepareGeneration(manifest,settings,progress=()=>{},{store
     if(settings.threads===1||typeof Worker==='undefined')return null;
     return pool??=poolFactory(settings.threads||4,manifest.version);
   };
-  const image=()=>imagePromise??=noiseLoader().then(i=>cube?prototypeNoiseImage(i):i);
-  const mask=()=>maskPromise??=image().then(i=>noiseMask(i.width,i.height,i.data,cube?CUBE_TEST.world:undefined));
+  const image=()=>imagePromise??=poc?Promise.resolve(prototypeNoiseImage(null,'poc2000')):
+    noiseLoader().then(i=>cube?prototypeNoiseImage(i):i);
+  const mask=()=>maskPromise??=image().then(i=>noiseMask(i.width,i.height,i.data,prototype?.world));
   const suffix=`revision=${manifest.models}${settings.force?'&refresh=1':''}`;
   const model=(kind,seed,length)=>json(kind==='walls'?`/api/demo-chunks-templates?seed=${seed}&${suffix}`:
     `/api/demo-building-long?seed=${seed}&length=${length}&${suffix}`);
   const builders={
     layout:{async compute(){
       if(noise){
-        const made=noiseLayout(settings.seed,await image(),progress,cube?CUBE_TEST:{});maskPromise=Promise.resolve(made.mask);
+        const made=noiseLayout(settings.seed,await image(),progress,prototype||{});maskPromise=Promise.resolve(made.mask);
         const {isSolidBox,...layout}=made.layout;return layout;
       }
       const layout=generateChunks(settings.seed);layout.buildingLong=placeBuildingLong(layout);

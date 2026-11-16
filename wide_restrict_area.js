@@ -1,3 +1,4 @@
+import {solidExcept} from './generation_solid_infill.js';
 import {mergeBoxes, subtract} from './generation_demo_generator.js';
 import {growRestrictMass} from './wide_restrict_mass.js';
 import {addRestrictTerminals} from './wide_restrict_terminals.js';
@@ -125,6 +126,22 @@ export function generateWideRestrictArea(seed = 42) {
     stats: {buildings: buildings.length, rooms: rooms.length, bridges: bridges.length, stairs: stairs.length}};
   addRestrictTerminals(data, CORE_END);
   growRestrictMass(data, random);
+  // Only the rooms, their accesses and the central fissure/stair court remain hollow.
+  const empty=rooms.map(room=>[room.x,room.y,room.z,room.sx,room.sy??13,room.sz]);
+  empty.push(...doors);
+  for(let station=0;station<stations.length;station++) {
+    const left=buildings.find(b=>b.station===station&&b.side===0);
+    const right=buildings.find(b=>b.station===station&&b.side===1);
+    for(let y=1;y<AREA.height;y+=STOREY) {
+      const level=Math.floor((y-1)/STOREY);
+      const a=left.rooms[Math.min(level,left.rooms.length-1)],b=right.rooms[Math.min(level,right.rooms.length-1)];
+      empty.push([left.x,y,a.front,left.width,Math.min(STOREY,AREA.height-y),b.front-a.front]);
+    }
+  }
+  empty.push([CORE_END,1,data.terminal.bayLow,data.terminal.front-CORE_END,
+    AREA.height-1,data.terminal.bayHigh-data.terminal.bayLow]);
+  const fill=solidExcept([[0,1,0,AREA.length,AREA.height-1,AREA.width]],empty,'mass_dark');
+  boxes.push(...fill);data.stats.solidInfillBoxes=fill.length;
   add(0, 0, 0, AREA.length, 1, AREA.width, 'ground');
   data.boxes = [...mergeBoxes(boxes.filter(box => box[6] !== 'ladder')), ...boxes.filter(box => box[6] === 'ladder')];
   return data;

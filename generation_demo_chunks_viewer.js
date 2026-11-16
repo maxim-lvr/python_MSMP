@@ -1,12 +1,15 @@
 import * as THREE from './web/vendor/three.module.js';
 import { OrbitControls } from './web/vendor/OrbitControls.js';
 import {WORLD_MIN_Y as DEFAULT_MIN_Y, WORLD_MAX_Y as DEFAULT_MAX_Y} from './world_config.js';
+import {buildNbtPreview,pipePlacements} from './generation_nbt_preview.js';
 
 const $ = id => document.getElementById(id);
 const noiseMode = document.body.dataset.map === 'noise';
 const cubeTest=noiseMode&&document.body.dataset.profile==='cube1000';
-const WORLD_MIN_Y=cubeTest?0:DEFAULT_MIN_Y,WORLD_MAX_Y=cubeTest?1000:DEFAULT_MAX_Y;
-const mapSize=noiseMode?10000:5000;
+const pocTest=noiseMode&&document.body.dataset.profile==='poc2000';
+const WORLD_MIN_Y=cubeTest||pocTest?0:DEFAULT_MIN_Y,WORLD_MAX_Y=pocTest?500:cubeTest?1000:DEFAULT_MAX_Y;
+const mapSize=pocTest?2000:noiseMode?10000:5000;
+const settingsKey=`msmp-map-settings:${location.pathname}`;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xedf0f2);
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -97,6 +100,7 @@ const lineMaterial = new THREE.LineBasicMaterial({ color: 0x536874, transparent:
 let content = new THREE.Group(), data, flying = false, worker;
 let renderBatches=[];
 let generationRevision=0;
+let nbtPreview,nbtRevision=0,nbtPlacements;
 scene.add(content);
 const keys = new Set();
 
@@ -109,7 +113,7 @@ function overview() {
   $('fly').setAttribute('aria-pressed', 'false');
   const distance = mapSize*.7 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.min(1, camera.aspect);
   camera.position.set(mapSize/2 + distance*0.12, WORLD_MIN_Y+distance*0.88+(cubeTest?400:0), mapSize/2 + distance*0.47);
-  controls.target.set(mapSize/2, cubeTest?500:WORLD_MIN_Y, mapSize/2);
+  controls.target.set(mapSize/2, pocTest?250:cubeTest?500:WORLD_MIN_Y, mapSize/2);
   controls.update();
 }
 
@@ -188,6 +192,11 @@ function inspectPipeDoor() {
 
 async function show(result,revision,generationSeconds) {
   if(revision!==generationRevision)return;
+  ++nbtRevision;nbtPreview?.dispose();nbtPreview=undefined;nbtPlacements=undefined;
+  if($('nbt-enabled')){$('nbt-enabled').checked=false;$('nbt-enabled').disabled=true;}
+  if($('nbt-update'))$('nbt-update').disabled=true;
+  if($('nbt-visit'))$('nbt-visit').disabled=true;
+  if($('nbt-status'))$('nbt-status').textContent='';
   const renderStarted=performance.now();let sliceStarted=renderStarted;
   scene.remove(content);
   content.traverse(object => {
@@ -252,6 +261,7 @@ async function show(result,revision,generationSeconds) {
   let built=0;
   for(const boxes of batches.values()) {
     const mesh=new THREE.InstancedMesh(cube,materials[boxes[0][6]]||materials.house,boxes.length);
+    if(['global_pipe','global_pipe_band','pipe_walkway'].includes(boxes[0][6]))mesh.userData.nbtSource=boxes;
     let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
     boxes.forEach(([x,y,z,sx,sy,sz],i)=>{
       const yy=WORLD_MIN_Y+y;
@@ -310,11 +320,43 @@ async function show(result,revision,generationSeconds) {
   if($('loading')) {
     const reused=result.loading?.reusedMap?'carte reutilisee':
       `${result.loading?.stages.filter(s=>s.hit).length||0} etapes reutilisees`;
-    $('loading').textContent=`Chargement ${generationSeconds.toFixed(1)} s · affichage ${displaySeconds.toFixed(1)} s · ${reused}${result.loading?.reusedMap?'':` · ${result.loading?.workers||1} workers`}`;
+    $('loading').textContent=`Chargement ${generationSeconds.toFixed(1)} s · affichage ${displaySeconds.toFixed(1)} s · ${reused}${result.loading?.reusedMap?'':` · ${result.loading?.workers||1} workers`} · ${result.loading?.cacheAvailable?'carte sauvegardee dans ce navigateur':'cache persistant indisponible'}`;
     $('loading').dataset.profile=JSON.stringify({generationSeconds,displaySeconds,...result.loading});
   }
   console.info('Map loading', {generationSeconds,displaySeconds,...result.loading});
+  if($('nbt-update'))$('nbt-update').disabled=false;
   overview();
+}
+
+async function updateNbt() {
+  if(!data)return;
+  const revision=++nbtRevision,mapRevision=generationRevision,button=$('nbt-update');button.disabled=true;
+  $('nbt-status').textContent='Lecture du NBT et habillage des tuyaux horizontaux...';
+  const cancelled=()=>revision!==nbtRevision||mapRevision!==generationRevision;
+  try {
+    const response=await fetch('/api/nbt-preview',{cache:'no-store'});
+    if(!response.ok)throw Error(`Lecture NBT : HTTP ${response.status}`);
+    const template=await response.json();if(cancelled())return;
+    nbtPlacements??=pipePlacements(data);
+    if(!nbtPreview||nbtPreview.revision!==template.revision) {
+      const next=await buildNbtPreview({data,template,placements:nbtPlacements,
+        sources:renderBatches.filter(m=>m.userData.nbtSource),cube,materials,minY:WORLD_MIN_Y,cancelled});
+      if(cancelled()){next?.dispose();return;}
+      nbtPreview?.dispose();nbtPreview=next;content.add(next.root);
+    }
+    $('nbt-enabled').disabled=false;$('nbt-enabled').checked=true;
+    $('nbt-visit').disabled=!nbtPlacements.length;
+    $('nbt-status').textContent=`NBT 13 × 13 × 24 · ${nbtPlacements.length} modules de tuyaux · ${nbtPlacements.length<=256?'details visibles a toute distance':'details a proximite'} · couleurs POC sans textures · coudes et tuyaux verticaux conserves`;
+  }catch(error){if(!cancelled())$('nbt-status').textContent=error.message;console.error(error);}
+  finally{if(revision===nbtRevision)button.disabled=false;}
+}
+
+function visitNbt() {
+  const placement=nbtPlacements?.[0];if(!placement)return;
+  const {axis,box}=placement,p=[box[0]+box[3]/2,box[1]+WORLD_MIN_Y+2.6,box[2]+box[5]/2];
+  p[axis]=box[axis]+3;camera.position.set(...p);const target=[...p];target[axis]+=18;camera.lookAt(...target);
+  flying=true;controls.enabled=false;document.body.dataset.fly='true';
+  $('fly').setAttribute('aria-pressed','true');$('overview').setAttribute('aria-pressed','false');
 }
 
 function generate(force=false,retries=0) {
@@ -324,6 +366,8 @@ function generate(force=false,retries=0) {
   if($('loading')){$('loading').textContent='';delete $('loading').dataset.profile;}
   $('stats').textContent='Generation des maisons et connexions...';
   const seed=Number($('seed').value), density=Number($('count').value);
+  try{localStorage.setItem(settingsKey,JSON.stringify({seed,count:density,threads:Number($('threads')?.value||4)}));}catch{}
+  if($('nbt-update'))$('nbt-update').disabled=true;
   worker=new Worker(noiseMode?'./generation_noise_worker.js?v=staged-cache-v1':'./generation_demo_chunks_worker.js?v=staged-cache-v1',{type:'module'});
   const current=worker;
   worker.onmessage=async({data:message})=>{
@@ -344,7 +388,7 @@ function generate(force=false,retries=0) {
     if(current!==worker)return;
     $('stats').textContent=`Erreur de generation : ${event.message}`;current.terminate();
   };
-  worker.postMessage({seed,density,force,threads:Number($('threads')?.value||4),profile:cubeTest?'cube1000':undefined});
+  worker.postMessage({seed,density,force,threads:Number($('threads')?.value||4),profile:pocTest?'poc2000':cubeTest?'cube1000':undefined});
 }
 
 function resize() {
@@ -360,6 +404,8 @@ $('random').onclick = () => { $('seed').value = crypto.getRandomValues(new Uint3
 $('overview').onclick = overview;
 $('fly').onclick = visit;
 if($('pipe-door'))$('pipe-door').onclick=inspectPipeDoor;
+if($('nbt-update'))$('nbt-update').onclick=updateNbt;
+if($('nbt-visit'))$('nbt-visit').onclick=visitNbt;
 $('zone').onchange = visit;
 $('inspection').onchange=()=>{
   const active=$('inspection').checked;
@@ -407,8 +453,15 @@ renderer.setAnimationLoop(() => {
     camera.position.addScaledVector(right, speed*(Number(keys.has('d'))-Number(keys.has('q'))));
     camera.position.y += speed*(Number(keys.has(' '))-Number(keys.has('c') || keys.has('control')));
   } else controls.update();
-  for(const mesh of renderBatches)mesh.visible=!flying || mesh.boundingBox.distanceToPoint(camera.position)<1000;
+  nbtPreview?.update(camera,$('nbt-enabled')?.checked===true);
+  for(const mesh of renderBatches)mesh.visible=!mesh.userData.nbtHidden&&(!flying || mesh.boundingBox.distanceToPoint(camera.position)<1000);
   renderer.render(scene, camera);
 });
 resize();
+try {
+  const saved=JSON.parse(localStorage.getItem(settingsKey)||'null');
+  if(saved)for(const id of ['seed','count','threads'])if($(id)&&saved[id]!==undefined){
+    const old=$(id).value;$(id).value=String(saved[id]);if(!$(id).checkValidity()||!$(id).value)$(id).value=old;
+  }
+}catch{}
 generate();

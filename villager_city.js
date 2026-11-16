@@ -17,6 +17,11 @@ export function generateVillagerCity(seed=42) {
     const floor=central?44:start[1]+integer(-3,3),end=[...start];end[axis]+=sign*length;end[1]=floor;
     const house=[end[0]-Math.floor(sx/2),floor,end[2]-Math.floor(sz/2),sx,sy,sz];
     house[axis]=end[axis]-(sign<0?house[axis+3]-1:0);
+    // Keep the two-wide bridge aligned with the sole entrance. On odd facades,
+    // put it by the viewer's left corner (one block of wall remains at the edge).
+    const width=house[side+3],left=axis===0?-sign:sign;
+    const doorOffset=width%2?(left<0?1:width-3):(width-2)/2;
+    house[side]=end[side]-1-doorOffset;
     const padding=[house[0]-1,floor,house[2]-1,sx+2,sy,sz+2];
     if(!inside(padding)||reserved.some(r=>overlaps(padding,r.box)))return false;
     const path=[],decks=[],volumes=[];
@@ -59,7 +64,8 @@ export function generateVillagerCity(seed=42) {
     if(house.floors===2) {
       const door=house.doors[0];
       // Place stairs along a side wall, clear of the entrance. Both floors have four clear blocks.
-      const stairX=door[0]===x?x+sx-2:x+1;
+      const stairX=door[0]===x?x+sx-2:door[0]===x+sx-1?x+1:
+        door[0]<x+sx/2?x+sx-2:x+1;
       const reverse=door[2]===z+sz-1,startZ=reverse?z+sz-2:z+1,sign=reverse?-1:1;
       let landing=[[x+1,y+5,z+1,sx-2,1,sz-2,'house']];
       for(let step=1;step<=5;step++) {

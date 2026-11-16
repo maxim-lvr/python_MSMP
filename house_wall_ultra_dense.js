@@ -1,3 +1,4 @@
+import {solidExcept} from './generation_solid_infill.js';
 import {populateUltraDense} from './house_wall_ultra_dense_rooms.js';
 // Prototype autonome, avant integration a la generation finale.
 export const ULTRA_DENSE = Object.freeze({
@@ -48,5 +49,24 @@ export function generateHouseWallUltraDense(seed=42,{populate=true,height=ULTRA_
     stats:{fullStoreys:Math.floor(c.height/c.storeyHeight),remainingHeight:c.height%c.storeyHeight,
       bandCount:bands.length,solidBoxes:boxes.length,houses:0},
   };
-  return populate?populateUltraDense(data,c,seed):data;
+  if(populate)populateUltraDense(data,c,seed);
+  const roomVoids=(data.rooms||[]).map(room=>room.box),padding=c.roomDepth-1;
+  const towerFill=solidExcept([[towerStart+c.wallThickness,1,towerStart+c.wallThickness,
+    c.towerLength-c.wallThickness*2,c.height-1,c.towerWidth-c.wallThickness*2]],roomVoids,'tower_wall');
+  data.groups.tower_infill=towerFill;
+  const exterior={
+    outer_north:[-padding,0,-padding,length+padding*2,c.height,padding],
+    outer_south:[-padding,0,width,length+padding*2,c.height,padding],
+    outer_west:[-padding,0,0,padding,c.height,width],
+    outer_east:[length,0,0,padding,c.height,width],
+  };
+  let infillCount=towerFill.length;
+  for(const [group,volume] of Object.entries(exterior)) {
+    const fill=solidExcept([volume],roomVoids,'outer_wall');
+    data.groups[group].push(...fill);infillCount+=fill.length;
+  }
+  data.boxes=Object.values(data.groups).flat();
+  data.bounds=[-padding,0,-padding,length+padding*2,c.height,width+padding*2];
+  Object.assign(data.stats,{solidBoxes:data.boxes.length,solidInfillBoxes:infillCount});
+  return data;
 }

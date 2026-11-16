@@ -9,6 +9,7 @@ from map_builder_house import (
 from map_builder_bridge_zone import Zone as BridgeZone, generate_tower_bridges, blocks_to_runs as bridge_runs
 from map_builde_dense_1 import HOUSE_MIN_XZ, HOUSE_MAX_XZ, HOUSE_MIN_Y, HOUSE_MAX_Y
 from map_builder_building_long import Zone as BuildingLongZone, build_payload as build_building_long
+from generation_wall_hives import wall_hive
 
 
 @lru_cache(maxsize=3)
@@ -32,6 +33,7 @@ def wall_templates(seed: int) -> dict:
         )
         bridges.append({"runs": bridge_runs(blocks), "bridges": len(paths), "towers": len(towers)})
     return {"strips": strips, "bridges": bridges,
+            "wallStrips": [wall_hive(seed ^ (0x48495645 + index * 7919)) for index in range(8)],
             "denseSize": [HOUSE_MIN_XZ, HOUSE_MAX_XZ, HOUSE_MIN_Y, HOUSE_MAX_Y]}
 
 

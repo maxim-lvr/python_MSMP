@@ -108,7 +108,8 @@ export function galleryMeshes(galleries,routes,connections,extraAir=[]) {
     Math.abs(a[0]-b[0])+1,3,Math.abs(a[2]-b[2])+1]);
   for(const c of connections)for(let i=0;i<c.path.length;i++) {
     const [x,y,z]=c.path[i];
-    cuts.push([x,y+1,z,1,i+1<c.path.length&&c.path[i+1][1]>y?3:2,1]);
+    const clearance=2+Math.max(0,(c.path[i-1]?.[1]??y)-y,(c.path[i+1]?.[1]??y)-y);
+    cuts.push([x,y+1,z,1,clearance,1]);
   }
   const air=spatial(cuts),occupied=spatial(galleries.outer),result=[];
   // Union the shells without caps at bends/junctions or duplicate overlapping faces.
